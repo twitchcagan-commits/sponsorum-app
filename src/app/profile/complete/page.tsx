@@ -4,9 +4,11 @@
   Run in Supabase SQL Editor before using this page:
 
   alter table yayinci_profiles
-    add column if not exists social_accounts      jsonb  default '[]',
-    add column if not exists categories           text[] default '{}',
-    add column if not exists visibility           text   default 'acik',
+    add column if not exists social_accounts      jsonb    default '[]',
+    add column if not exists categories           text[]   default '{}',
+    add column if not exists visibility           text     default 'acik',
+    add column if not exists proof_files          jsonb    default '{}',
+    add column if not exists verified             boolean  default false,
     -- Instagram
     add column if not exists price_ig_story          numeric,
     add column if not exists price_ig_reels          numeric,
@@ -34,6 +36,20 @@
     add column if not exists price_x_thread          numeric,
     add column if not exists price_x_bio             numeric;
 
+  Storage bucket (run once in Supabase dashboard or SQL):
+    insert into storage.buckets (id, name, public)
+    values ('proofs', 'proofs', true)
+    on conflict do nothing;
+
+  Storage RLS (allow authenticated users to upload their own proofs):
+    create policy "Users upload own proofs" on storage.objects
+      for insert to authenticated
+      with check (bucket_id = 'proofs' and (storage.foldername(name))[1] = auth.uid()::text);
+
+    create policy "Proofs public read" on storage.objects
+      for select to public
+      using (bucket_id = 'proofs');
+
   RLS policies needed on yayinci_profiles:
     INSERT: WITH CHECK (auth.uid() = id)
     UPDATE: USING (auth.uid() = id)
@@ -51,6 +67,7 @@ const STEPS = [
   { id: 2, label: "Niş & Kategori" },
   { id: 3, label: "Fiyatlar"       },
   { id: 4, label: "Görünürlük"     },
+  { id: 5, label: "Kanıtlar"       },
 ];
 
 const PLATFORMS = ["X", "Instagram", "TikTok", "YouTube", "Kick", "Twitch"];
@@ -76,12 +93,12 @@ const PLATFORM_STAT_FIELDS: Record<string, StatField[]> = {
     { key: "avg_views",   label: "Ort. Video İzlenme", placeholder: "30000"  },
   ],
   Kick: [
-    { key: "followers",   label: "Takipçi Sayısı",             placeholder: "10000" },
-    { key: "avg_viewers", label: "Ort. Eş Zamanlı İzleyici",   placeholder: "500"   },
+    { key: "followers",   label: "Takipçi Sayısı",           placeholder: "10000" },
+    { key: "avg_viewers", label: "Ort. Eş Zamanlı İzleyici", placeholder: "500"   },
   ],
   Twitch: [
-    { key: "followers",   label: "Takipçi Sayısı",             placeholder: "15000" },
-    { key: "avg_viewers", label: "Ort. Eş Zamanlı İzleyici",   placeholder: "300"   },
+    { key: "followers",   label: "Takipçi Sayısı",           placeholder: "15000" },
+    { key: "avg_viewers", label: "Ort. Eş Zamanlı İzleyici", placeholder: "300"   },
   ],
   X: [
     { key: "followers",       label: "Takipçi Sayısı",      placeholder: "25000" },
@@ -91,31 +108,31 @@ const PLATFORM_STAT_FIELDS: Record<string, StatField[]> = {
 
 const PRICE_ROWS = [
   // Instagram
-  { col: "price_ig_story",          label: "Story",                            group: "Instagram",    platforms: ["Instagram"],       icon: "📸", defaultDays: 1 },
-  { col: "price_ig_reels",          label: "Reels",                            group: "Instagram",    platforms: ["Instagram"],       icon: "📸", defaultDays: 3 },
-  { col: "price_ig_post",           label: "Post",                             group: "Instagram",    platforms: ["Instagram"],       icon: "📸", defaultDays: 3 },
-  { col: "price_ig_highlight",      label: "Highlight",                        group: "Instagram",    platforms: ["Instagram"],       icon: "📸", defaultDays: 7 },
-  { col: "price_ig_bio_link",       label: "Bio Link",                         group: "Instagram",    platforms: ["Instagram"],       icon: "📸", defaultDays: 7 },
+  { col: "price_ig_story",          label: "Story",                                group: "Instagram",    platforms: ["Instagram"],       icon: "📸", defaultDays: 1 },
+  { col: "price_ig_reels",          label: "Reels",                                group: "Instagram",    platforms: ["Instagram"],       icon: "📸", defaultDays: 3 },
+  { col: "price_ig_post",           label: "Post",                                 group: "Instagram",    platforms: ["Instagram"],       icon: "📸", defaultDays: 3 },
+  { col: "price_ig_highlight",      label: "Highlight",                            group: "Instagram",    platforms: ["Instagram"],       icon: "📸", defaultDays: 7 },
+  { col: "price_ig_bio_link",       label: "Bio Link",                             group: "Instagram",    platforms: ["Instagram"],       icon: "📸", defaultDays: 7 },
   // TikTok
-  { col: "price_tt_video",          label: "Video",                            group: "TikTok",       platforms: ["TikTok"],          icon: "🎵", defaultDays: 3 },
-  { col: "price_tt_live",           label: "Canlı Yayın",                      group: "TikTok",       platforms: ["TikTok"],          icon: "🎵", defaultDays: 1 },
-  { col: "price_tt_profile_link",   label: "Profil Linki",                     group: "TikTok",       platforms: ["TikTok"],          icon: "🎵", defaultDays: 7 },
+  { col: "price_tt_video",          label: "Video",                                group: "TikTok",       platforms: ["TikTok"],          icon: "🎵", defaultDays: 3 },
+  { col: "price_tt_live",           label: "Canlı Yayın",                          group: "TikTok",       platforms: ["TikTok"],          icon: "🎵", defaultDays: 1 },
+  { col: "price_tt_profile_link",   label: "Profil Linki",                         group: "TikTok",       platforms: ["TikTok"],          icon: "🎵", defaultDays: 7 },
   // YouTube
-  { col: "price_yt_video",          label: "Video Entegre (Başı / Ortası / Sonu)", group: "YouTube", platforms: ["YouTube"],          icon: "▶",  defaultDays: 7 },
-  { col: "price_yt_end_screen",     label: "End Screen",                       group: "YouTube",      platforms: ["YouTube"],          icon: "▶",  defaultDays: 7 },
-  { col: "price_yt_desc_link",      label: "Açıklama Linki",                   group: "YouTube",      platforms: ["YouTube"],          icon: "▶",  defaultDays: 7 },
-  { col: "price_yt_live_banner",    label: "Canlı Yayın Banner",               group: "YouTube",      platforms: ["YouTube"],          icon: "▶",  defaultDays: 1 },
-  { col: "price_yt_overlay",        label: "Overlay Logo",                     group: "YouTube",      platforms: ["YouTube"],          icon: "▶",  defaultDays: 1 },
+  { col: "price_yt_video",          label: "Video Entegre (Başı / Ortası / Sonu)", group: "YouTube",      platforms: ["YouTube"],          icon: "▶",  defaultDays: 7 },
+  { col: "price_yt_end_screen",     label: "End Screen",                           group: "YouTube",      platforms: ["YouTube"],          icon: "▶",  defaultDays: 7 },
+  { col: "price_yt_desc_link",      label: "Açıklama Linki",                       group: "YouTube",      platforms: ["YouTube"],          icon: "▶",  defaultDays: 7 },
+  { col: "price_yt_live_banner",    label: "Canlı Yayın Banner",                   group: "YouTube",      platforms: ["YouTube"],          icon: "▶",  defaultDays: 1 },
+  { col: "price_yt_overlay",        label: "Overlay Logo",                         group: "YouTube",      platforms: ["YouTube"],          icon: "▶",  defaultDays: 1 },
   // Kick / Twitch
-  { col: "price_stream_mention",    label: "Canlı Yayın Sözlü Bahis",          group: "Kick / Twitch", platforms: ["Kick", "Twitch"], icon: "🎮", defaultDays: 1 },
-  { col: "price_stream_overlay",    label: "Ekran Overlay Logo",               group: "Kick / Twitch", platforms: ["Kick", "Twitch"], icon: "🎮", defaultDays: 1 },
-  { col: "price_stream_panel",      label: "Panel Banner",                     group: "Kick / Twitch", platforms: ["Kick", "Twitch"], icon: "🎮", defaultDays: 7 },
-  { col: "price_stream_integrated", label: "Canlı Yayın Entegre",              group: "Kick / Twitch", platforms: ["Kick", "Twitch"], icon: "🎮", defaultDays: 1 },
+  { col: "price_stream_mention",    label: "Canlı Yayın Sözlü Bahis",              group: "Kick / Twitch", platforms: ["Kick", "Twitch"], icon: "🎮", defaultDays: 1 },
+  { col: "price_stream_overlay",    label: "Ekran Overlay Logo",                   group: "Kick / Twitch", platforms: ["Kick", "Twitch"], icon: "🎮", defaultDays: 1 },
+  { col: "price_stream_panel",      label: "Panel Banner",                         group: "Kick / Twitch", platforms: ["Kick", "Twitch"], icon: "🎮", defaultDays: 7 },
+  { col: "price_stream_integrated", label: "Canlı Yayın Entegre",                  group: "Kick / Twitch", platforms: ["Kick", "Twitch"], icon: "🎮", defaultDays: 1 },
   // X (Twitter)
-  { col: "price_tweet",             label: "Tweet",                            group: "X",            platforms: ["X"],               icon: "𝕏",  defaultDays: 1 },
-  { col: "price_x_pinned",          label: "Sabitlenmiş Tweet",                group: "X",            platforms: ["X"],               icon: "𝕏",  defaultDays: 7 },
-  { col: "price_x_thread",          label: "Thread",                           group: "X",            platforms: ["X"],               icon: "𝕏",  defaultDays: 3 },
-  { col: "price_x_bio",             label: "Profil Bio",                       group: "X",            platforms: ["X"],               icon: "𝕏",  defaultDays: 7 },
+  { col: "price_tweet",             label: "Tweet",                                group: "X",            platforms: ["X"],               icon: "𝕏",  defaultDays: 1 },
+  { col: "price_x_pinned",          label: "Sabitlenmiş Tweet",                    group: "X",            platforms: ["X"],               icon: "𝕏",  defaultDays: 7 },
+  { col: "price_x_thread",          label: "Thread",                               group: "X",            platforms: ["X"],               icon: "𝕏",  defaultDays: 3 },
+  { col: "price_x_bio",             label: "Profil Bio",                           group: "X",            platforms: ["X"],               icon: "𝕏",  defaultDays: 7 },
 ];
 
 const GROUP_ORDER = [...new Set(PRICE_ROWS.map((r) => r.group))];
@@ -134,6 +151,35 @@ const VISIBILITY_OPTIONS = [
   { id: "kapali" as const, label: "Kapalı",    emoji: "🔒", desc: "Profilin gizli. Yalnızca sana gelen teklifleri görebilirsin." },
   { id: "gizli"  as const, label: "Gizli Mod", emoji: "🕵️", desc: "Platformda görünmezsin ama teklifleri kabul edebilirsin. Kimliğin tam gizlilikte kalır." },
 ];
+
+type ProofDef = { key: string; platform: string; label: string; desc: string };
+
+const PROOF_DEFS: ProofDef[] = [
+  // Instagram
+  { key: "ig_stats_30d",    platform: "Instagram", label: "Hesap İstatistikleri (Son 30 Gün)", desc: "Reach ve impression gösteren ekran görüntüsü"                       },
+  { key: "ig_demographics", platform: "Instagram", label: "Kitle Demografisi",                 desc: "Yaş, cinsiyet ve konum dağılımı ekran görüntüsü"                    },
+  { key: "ig_reels_perf",   platform: "Instagram", label: "Son 5 Reels Performansı",           desc: "Son 5 reels videosunun izlenme ve etkileşim istatistikleri"          },
+  // TikTok
+  { key: "tt_analytics",    platform: "TikTok",    label: "TikTok Analytics (Son 28 Gün)",    desc: "Genel hesap analitiği ekran görüntüsü"                               },
+  { key: "tt_avg_views",    platform: "TikTok",    label: "Video Görüntülenme Ortalaması",     desc: "Ortalama video görüntülenme sayısı kanıtı"                           },
+  { key: "tt_demographics", platform: "TikTok",    label: "Takipçi Demografisi",               desc: "Yaş, cinsiyet ve konum dağılımı ekran görüntüsü"                    },
+  // YouTube
+  { key: "yt_analytics",    platform: "YouTube",   label: "YouTube Studio Analytics (Son 28 Gün)", desc: "Studio analitiği ekran görüntüsü"                             },
+  { key: "yt_demographics", platform: "YouTube",   label: "İzleyici Demografisi",              desc: "Yaş, cinsiyet ve coğrafi dağılım ekran görüntüsü"                   },
+  { key: "yt_watch_time",   platform: "YouTube",   label: "Ortalama İzlenme Süresi",           desc: "Ortalama izlenme süresi ve tıklama oranı ekran görüntüsü"            },
+  // Kick
+  { key: "kick_viewers",    platform: "Kick",      label: "Ortalama Eş Zamanlı İzleyici",     desc: "Yayın sırasında alınmış izleyici sayısı ekran görüntüsü"             },
+  { key: "kick_stats",      platform: "Kick",      label: "Kanal İstatistikleri",              desc: "Kanal genel istatistikleri ekran görüntüsü"                          },
+  // Twitch
+  { key: "twitch_viewers",  platform: "Twitch",    label: "Ortalama Eş Zamanlı İzleyici",     desc: "Yayın sırasında alınmış izleyici sayısı ekran görüntüsü"             },
+  { key: "twitch_stats",    platform: "Twitch",    label: "Kanal İstatistikleri",              desc: "Kanal genel istatistikleri ekran görüntüsü"                          },
+  // X
+  { key: "x_analytics",     platform: "X",         label: "Tweet Analitik",                   desc: "Tweet analitik ekran görüntüsü"                                      },
+  { key: "x_profile_stats", platform: "X",         label: "Profil Ziyaret ve Gösterim",       desc: "Profil ziyaret ve gösterim istatistikleri ekran görüntüsü"            },
+];
+
+const ALLOWED_TYPES = ["image/jpeg", "image/png", "application/pdf"];
+const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB
 
 const DELIVERY_OPTIONS = [1, 2, 3, 5, 7, 10, 14];
 const MIN_PRICE = 750;
@@ -218,6 +264,12 @@ export default function ProfileCompletePage() {
   // ── Step 4 state ──
   const [visibility, setVisibility] = useState<Visibility>("acik");
 
+  // ── Step 5 state ──
+  const [proofUrls, setProofUrls]           = useState<Record<string, string>>({});
+  const [uploadingKeys, setUploadingKeys]   = useState<Set<string>>(new Set());
+  const [proofFileErrors, setProofFileErrors] = useState<Record<string, string>>({});
+  const [proofStepError, setProofStepError] = useState("");
+
   const [saving, setSaving]       = useState(false);
   const [saveError, setSaveError] = useState("");
 
@@ -234,6 +286,10 @@ export default function ProfileCompletePage() {
     return acc;
   }, {} as Record<string, typeof PRICE_ROWS>);
   const visibleGroups = GROUP_ORDER.filter((g) => groupedVisibleRows[g]);
+
+  // Proof defs for the platforms the user actually added, grouped by platform
+  const visibleProofPlatforms = PLATFORMS.filter((p) => addedPlatforms.has(p));
+  const visibleProofDefs      = PROOF_DEFS.filter((d) => addedPlatforms.has(d.platform));
 
   // ── Step 1 handlers ──
 
@@ -286,6 +342,55 @@ export default function ProfileCompletePage() {
     return Object.keys(errs).length === 0;
   }
 
+  // ── Step 5 handlers ──
+
+  async function handleFileSelect(key: string, file: File) {
+    // Validate type
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      setProofFileErrors((prev) => ({ ...prev, [key]: "Sadece JPG, PNG veya PDF yükleyebilirsiniz." }));
+      return;
+    }
+    // Validate size
+    if (file.size > MAX_FILE_BYTES) {
+      setProofFileErrors((prev) => ({ ...prev, [key]: "Dosya boyutu 5MB'yi geçemez." }));
+      return;
+    }
+
+    setProofFileErrors((prev) => ({ ...prev, [key]: "" }));
+    setUploadingKeys((prev) => new Set([...prev, key]));
+
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { router.push("/login"); return; }
+
+    const ext  = file.name.split(".").pop() ?? "bin";
+    const path = `${user.id}/${key}-${Date.now()}.${ext}`;
+
+    const { data, error } = await supabase.storage
+      .from("proofs")
+      .upload(path, file, { upsert: true, contentType: file.type });
+
+    setUploadingKeys((prev) => { const n = new Set(prev); n.delete(key); return n; });
+
+    if (error) {
+      setProofFileErrors((prev) => ({ ...prev, [key]: "Yükleme başarısız: " + error.message }));
+      return;
+    }
+
+    const { data: { publicUrl } } = supabase.storage.from("proofs").getPublicUrl(data.path);
+    setProofUrls((prev) => ({ ...prev, [key]: publicUrl }));
+    setProofStepError("");
+  }
+
+  function validateProofs(): boolean {
+    const missing = visibleProofDefs.filter((d) => !proofUrls[d.key]);
+    if (missing.length > 0) {
+      setProofStepError("Lütfen tüm gerekli kanıt dosyalarını yükleyin.");
+      return false;
+    }
+    return true;
+  }
+
   // ── Navigation ──
 
   function goNext() {
@@ -296,6 +401,7 @@ export default function ProfileCompletePage() {
   // ── Save ──
 
   async function handleSave() {
+    if (!validateProofs()) return;
     setSaving(true);
     setSaveError("");
 
@@ -315,6 +421,8 @@ export default function ProfileCompletePage() {
       social_accounts: socialAccounts,
       categories,
       visibility,
+      proof_files:     proofUrls,
+      verified:        false,
       // Instagram
       price_ig_story:          toNum("price_ig_story"),
       price_ig_reels:          toNum("price_ig_reels"),
@@ -345,7 +453,6 @@ export default function ProfileCompletePage() {
 
     if (error) {
       console.error("[profile/complete] upsert error:", error);
-      console.error("[profile/complete] upsert details:", JSON.stringify(error));
       setSaveError("Profil kaydedilirken bir hata oluştu: " + error.message);
       setSaving(false);
       return;
@@ -378,7 +485,6 @@ export default function ProfileCompletePage() {
 
               {/* Add form */}
               <div className="rounded-xl border border-gray-200 p-5 mb-5">
-                {/* Platform + username row */}
                 <div className="flex gap-2 mb-4">
                   <select
                     value={selPlatform}
@@ -399,7 +505,6 @@ export default function ProfileCompletePage() {
                   />
                 </div>
 
-                {/* Platform-specific stat fields */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
                   {PLATFORM_STAT_FIELDS[selPlatform].map((field) => (
                     <div key={field.key}>
@@ -444,7 +549,6 @@ export default function ProfileCompletePage() {
                           </div>
                           <button onClick={() => removeAccount(i)} className="text-gray-400 hover:text-red-500 transition-colors text-xl leading-none">×</button>
                         </div>
-                        {/* Stats chips */}
                         <div className="flex flex-wrap gap-2">
                           {fields.map((f) => (
                             acc.stats[f.key] ? (
@@ -580,7 +684,7 @@ export default function ProfileCompletePage() {
             <div>
               <h2 className="text-xl font-extrabold mb-1" style={{ color: "#042C53" }}>Görünürlük Ayarı</h2>
               <p className="text-sm text-gray-500 mb-7">Profilinin platformda nasıl görüneceğini seç.</p>
-              <div className="flex flex-col gap-3 mb-8">
+              <div className="flex flex-col gap-3">
                 {VISIBILITY_OPTIONS.map((opt) => (
                   <button
                     key={opt.id}
@@ -601,9 +705,126 @@ export default function ProfileCompletePage() {
                   </button>
                 ))}
               </div>
-              {saveError && (
-                <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 mb-4">{saveError}</div>
+            </div>
+          )}
+
+          {/* ── Step 5: Kanıtlar ── */}
+          {step === 5 && (
+            <div>
+              <h2 className="text-xl font-extrabold mb-1" style={{ color: "#042C53" }}>İstatistik Kanıtları</h2>
+              <p className="text-sm text-gray-500 mb-2">
+                Eklediğin her platform için istatistik ekran görüntülerini yükle. Sponsorum ekibi tarafından incelenerek profilin onaylanacak.
+              </p>
+              <div className="inline-flex items-center gap-1.5 text-xs font-semibold rounded-full px-3 py-1 mb-7" style={{ backgroundColor: "#EFF6FF", color: "#1D4ED8" }}>
+                JPG, PNG veya PDF · Maks. 5MB · Tüm alanlar zorunlu
+              </div>
+
+              {visibleProofPlatforms.length === 0 ? (
+                <div className="rounded-xl border-2 border-dashed border-gray-200 py-10 text-center text-sm text-gray-400">
+                  Adım 1&apos;de sosyal medya hesabı eklemen gerekiyor.
+                </div>
+              ) : (
+                <div className="flex flex-col gap-8">
+                  {visibleProofPlatforms.map((platform) => {
+                    const defs = PROOF_DEFS.filter((d) => d.platform === platform);
+                    return (
+                      <div key={platform}>
+                        <div className="flex items-center gap-2 mb-4 pb-2 border-b border-gray-100">
+                          <span>{PLATFORM_ICONS[platform]}</span>
+                          <span className="text-xs font-bold uppercase tracking-widest" style={{ color: "#185FA5" }}>{platform}</span>
+                        </div>
+                        <div className="flex flex-col gap-4">
+                          {defs.map((proof) => {
+                            const uploaded  = !!proofUrls[proof.key];
+                            const uploading = uploadingKeys.has(proof.key);
+                            const err       = proofFileErrors[proof.key];
+
+                            return (
+                              <div key={proof.key} className="rounded-xl border border-gray-100 p-5" style={{ backgroundColor: "#FAFAFA" }}>
+                                <div className="flex items-start justify-between gap-3 mb-1">
+                                  <div>
+                                    <p className="text-sm font-bold" style={{ color: "#042C53" }}>{proof.label}</p>
+                                    <p className="text-xs text-gray-400 mt-0.5">{proof.desc}</p>
+                                  </div>
+                                  {uploaded && (
+                                    <span className="flex-shrink-0 text-xs font-semibold text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-full px-2.5 py-1">
+                                      ✓ Yüklendi
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="mt-3">
+                                  <label className="cursor-pointer">
+                                    <input
+                                      type="file"
+                                      accept=".jpg,.jpeg,.png,.pdf"
+                                      className="hidden"
+                                      disabled={uploading}
+                                      onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) handleFileSelect(proof.key, file);
+                                        e.target.value = "";
+                                      }}
+                                    />
+                                    <div
+                                      className="flex items-center justify-center gap-2 rounded-xl border-2 border-dashed py-3 px-4 text-sm font-semibold transition-all"
+                                      style={{
+                                        borderColor:     uploaded ? "#10B981" : "#E5E7EB",
+                                        backgroundColor: uploaded ? "#F0FDF4" : "white",
+                                        color:           uploading ? "#9CA3AF" : uploaded ? "#059669" : "#185FA5",
+                                        cursor:          uploading ? "not-allowed" : "pointer",
+                                      }}
+                                    >
+                                      {uploading ? (
+                                        <>
+                                          <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                                          </svg>
+                                          Yükleniyor…
+                                        </>
+                                      ) : uploaded ? (
+                                        <>✓ Değiştir</>
+                                      ) : (
+                                        <>
+                                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1M12 12V4m0 0l-3 3m3-3l3 3" />
+                                          </svg>
+                                          Dosya Seç
+                                        </>
+                                      )}
+                                    </div>
+                                  </label>
+
+                                  {err && (
+                                    <p className="text-xs text-red-600 mt-1.5">{err}</p>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
+
+              {proofStepError && (
+                <div className="mt-5 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+                  {proofStepError}
+                </div>
+              )}
+
+              {saveError && (
+                <div className="mt-3 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+                  {saveError}
+                </div>
+              )}
+
+              <div className="mt-6 rounded-xl bg-amber-50 border border-amber-100 px-4 py-3 text-xs text-amber-700 leading-relaxed">
+                🔍 Yüklenen dosyalar Sponsorum ekibi tarafından incelenecek. Onay sonrası profilin &quot;Doğrulanmış&quot; rozeti kazanacak.
+              </div>
             </div>
           )}
 
@@ -616,7 +837,7 @@ export default function ProfileCompletePage() {
                 ← Geri
               </button>
             )}
-            {step < 4 ? (
+            {step < 5 ? (
               <button onClick={goNext}
                 className="rounded-xl px-8 py-3 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98]"
                 style={{ backgroundColor: "#185FA5" }}
@@ -625,12 +846,12 @@ export default function ProfileCompletePage() {
                 İleri →
               </button>
             ) : (
-              <button onClick={handleSave} disabled={saving}
+              <button onClick={handleSave} disabled={saving || uploadingKeys.size > 0}
                 className="rounded-xl px-8 py-3 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
                 style={{ backgroundColor: "#185FA5" }}
                 onMouseEnter={e => { if (!saving) e.currentTarget.style.backgroundColor = "#042C53"; }}
                 onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#185FA5"; }}>
-                {saving ? "Kaydediliyor…" : "Profili Tamamla ✓"}
+                {saving ? "Kaydediliyor…" : uploadingKeys.size > 0 ? "Yükleniyor…" : "Profili Tamamla ✓"}
               </button>
             )}
           </div>
