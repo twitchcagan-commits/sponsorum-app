@@ -323,11 +323,12 @@ export default function ProfilePage() {
         "price_tweet", "price_x_pinned", "price_x_thread", "price_x_bio",
       ].join(", ");
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data: yp, error: ypErr } = await supabase
         .from("yayinci_profiles")
         .select(cols)
         .eq("id", profile.id)
-        .maybeSingle();
+        .maybeSingle() as any;
 
       if (ypErr) console.error("[profile] yayinci_profiles query:", ypErr);
       if (!yp)   { setNotFound(true); setLoading(false); return; }
