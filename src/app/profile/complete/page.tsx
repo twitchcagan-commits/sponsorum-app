@@ -1,0 +1,564 @@
+"use client";
+
+/*
+  Run in Supabase SQL Editor before using this page:
+
+  alter table yayinci_profiles
+    add column if not exists social_accounts jsonb  default '[]',
+    add column if not exists categories      text[] default '{}',
+    add column if not exists visibility      text   default 'acik',
+    add column if not exists price_story     numeric,
+    add column if not exists price_reels     numeric,
+    add column if not exists price_tiktok    numeric,
+    add column if not exists price_youtube   numeric,
+    add column if not exists price_stream    numeric,
+    add column if not exists price_tweet     numeric;
+*/
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase";
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const STEPS = [
+  { id: 1, label: "Sosyal Medya"   },
+  { id: 2, label: "Niş & Kategori" },
+  { id: 3, label: "Fiyatlar"       },
+  { id: 4, label: "Görünürlük"     },
+];
+
+const PLATFORMS = ["X", "Instagram", "TikTok", "YouTube", "Kick", "Twitch"];
+
+const PLATFORM_ICONS: Record<string, string> = {
+  X: "𝕏", Instagram: "📸", TikTok: "🎵", YouTube: "▶", Kick: "🟢", Twitch: "💜",
+};
+
+type StatField = { key: string; label: string; placeholder: string };
+
+const PLATFORM_STAT_FIELDS: Record<string, StatField[]> = {
+  Instagram: [
+    { key: "followers",       label: "Takipçi Sayısı",         placeholder: "120000" },
+    { key: "avg_reels_views", label: "Ort. Reels İzlenme",      placeholder: "45000"  },
+    { key: "avg_story_views", label: "Ort. Story Görüntülenme", placeholder: "12000"  },
+  ],
+  TikTok: [
+    { key: "followers",       label: "Takipçi Sayısı",    placeholder: "50000" },
+    { key: "avg_video_views", label: "Ort. Video İzlenme", placeholder: "80000" },
+  ],
+  YouTube: [
+    { key: "subscribers", label: "Abone Sayısı",       placeholder: "100000" },
+    { key: "avg_views",   label: "Ort. Video İzlenme",  placeholder: "30000"  },
+  ],
+  Kick: [
+    { key: "followers",   label: "Takipçi Sayısı",              placeholder: "10000" },
+    { key: "avg_viewers", label: "Ort. Eş Zamanlı İzleyici",   placeholder: "500"   },
+  ],
+  Twitch: [
+    { key: "followers",   label: "Takipçi Sayısı",             placeholder: "15000" },
+    { key: "avg_viewers", label: "Ort. Eş Zamanlı İzleyici",  placeholder: "300"   },
+  ],
+  X: [
+    { key: "followers",       label: "Takipçi Sayısı",      placeholder: "25000" },
+    { key: "avg_impressions", label: "Ort. Tweet Gösterimi", placeholder: "5000"  },
+  ],
+};
+
+// col → which platforms trigger this price row
+// "stream" is triggered by Kick OR Twitch (deduped)
+const PRICE_ROWS = [
+  { col: "price_story",   label: "Instagram Story",            platforms: ["Instagram"], icon: "📸", defaultDays: 1 },
+  { col: "price_reels",   label: "Instagram Reels (60 sn)",    platforms: ["Instagram"], icon: "📸", defaultDays: 3 },
+  { col: "price_tiktok",  label: "TikTok Video",               platforms: ["TikTok"],    icon: "🎵", defaultDays: 3 },
+  { col: "price_youtube", label: "YouTube Entegrasyon",         platforms: ["YouTube"],   icon: "▶",  defaultDays: 7 },
+  { col: "price_stream",  label: "Stream Mention",              platforms: ["Kick", "Twitch"], icon: "🎮", defaultDays: 1 },
+  { col: "price_tweet",   label: "Tweet / X Paylaşımı",         platforms: ["X"],          icon: "𝕏",  defaultDays: 1 },
+];
+
+const CATEGORIES = [
+  { label: "Oyun",       emoji: "🎮" },
+  { label: "Futbol",     emoji: "⚽" },
+  { label: "Mizah",      emoji: "😂" },
+  { label: "Influencer", emoji: "🌟" },
+  { label: "Müzik",      emoji: "🎤" },
+  { label: "Diğer",      emoji: "✨" },
+];
+
+const VISIBILITY_OPTIONS = [
+  { id: "acik"   as const, label: "Açık",      emoji: "🌐", desc: "Profilin herkese görünür. Markalar seni bulabilir ve teklif gönderebilir." },
+  { id: "kapali" as const, label: "Kapalı",    emoji: "🔒", desc: "Profilin gizli. Yalnızca sana gelen teklifleri görebilirsin." },
+  { id: "gizli"  as const, label: "Gizli Mod", emoji: "🕵️", desc: "Platformda görünmezsin ama teklifleri kabul edebilirsin. Kimliğin tam gizlilikte kalır." },
+];
+
+const DELIVERY_OPTIONS = [1, 2, 3, 5, 7, 10, 14];
+const MIN_PRICE = 750;
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type SocialAccount = { platform: string; username: string; stats: Record<string, string> };
+type PriceEntry    = { price: string; days: number };
+type Visibility    = "acik" | "kapali" | "gizli";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function fmt(val: string): string {
+  const n = parseInt(val);
+  if (!val || isNaN(n)) return "—";
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(".0", "") + "M";
+  if (n >= 1_000)     return (n / 1_000).toFixed(0) + "K";
+  return String(n);
+}
+
+// ─── Progress bar ─────────────────────────────────────────────────────────────
+
+function ProgressBar({ current }: { current: number }) {
+  return (
+    <div className="w-full mb-10">
+      <div className="flex items-center justify-between relative">
+        <div className="absolute top-4 left-0 right-0 h-0.5 bg-gray-200 z-0" />
+        <div
+          className="absolute top-4 left-0 h-0.5 z-0 transition-all duration-500"
+          style={{ backgroundColor: "#185FA5", width: `${((current - 1) / (STEPS.length - 1)) * 100}%` }}
+        />
+        {STEPS.map((s) => {
+          const done = s.id < current; const active = s.id === current;
+          return (
+            <div key={s.id} className="flex flex-col items-center gap-2 z-10">
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all"
+                style={{
+                  backgroundColor: done || active ? "#185FA5" : "white",
+                  borderColor:     done || active ? "#185FA5" : "#E5E7EB",
+                  color:           done || active ? "white"   : "#9CA3AF",
+                }}
+              >
+                {done ? "✓" : s.id}
+              </div>
+              <span className="text-xs font-semibold hidden sm:block" style={{ color: active ? "#185FA5" : done ? "#6B7280" : "#9CA3AF" }}>
+                {s.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const inputCls = "w-full rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-900 outline-none transition-all focus:border-[#185FA5] focus:ring-2 focus:ring-[#185FA5]/20";
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+export default function ProfileCompletePage() {
+  const router = useRouter();
+  const [step, setStep] = useState(1);
+
+  // ── Step 1 state ──
+  const [selPlatform, setSelPlatform]       = useState("Instagram");
+  const [selUsername, setSelUsername]       = useState("");
+  const [selStats, setSelStats]             = useState<Record<string, string>>({});
+  const [socialAccounts, setSocialAccounts] = useState<SocialAccount[]>([]);
+  const [addError, setAddError]             = useState("");
+
+  // ── Step 2 state ──
+  const [categories, setCategories] = useState<string[]>([]);
+  const [bio, setBio]               = useState("");
+
+  // ── Step 3 state ──
+  const [prices, setPrices] = useState<Record<string, PriceEntry>>(
+    Object.fromEntries(PRICE_ROWS.map((r) => [r.col, { price: "", days: r.defaultDays }]))
+  );
+  const [priceErrors, setPriceErrors] = useState<Record<string, string>>({});
+
+  // ── Step 4 state ──
+  const [visibility, setVisibility] = useState<Visibility>("acik");
+
+  const [saving, setSaving]       = useState(false);
+  const [saveError, setSaveError] = useState("");
+
+  // ── Derived ──
+  const addedPlatforms = new Set(socialAccounts.map((a) => a.platform));
+
+  const visiblePriceRows = PRICE_ROWS.filter((row) =>
+    row.platforms.some((p) => addedPlatforms.has(p))
+  );
+
+  // ── Step 1 handlers ──
+
+  function handlePlatformChange(p: string) {
+    setSelPlatform(p);
+    setSelStats({});
+    setAddError("");
+  }
+
+  function addAccount() {
+    setAddError("");
+    if (!selUsername.trim()) { setAddError("Kullanıcı adı boş olamaz."); return; }
+    if (socialAccounts.some((a) => a.platform === selPlatform)) {
+      setAddError(`${selPlatform} hesabı zaten ekli.`); return;
+    }
+    setSocialAccounts((prev) => [...prev, { platform: selPlatform, username: selUsername.trim(), stats: { ...selStats } }]);
+    setSelUsername("");
+    setSelStats({});
+  }
+
+  function removeAccount(i: number) {
+    setSocialAccounts((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  // ── Step 2 handlers ──
+
+  function toggleCategory(label: string) {
+    setCategories((prev) =>
+      prev.includes(label) ? prev.filter((c) => c !== label) : prev.length < 3 ? [...prev, label] : prev
+    );
+  }
+
+  // ── Step 3 handlers ──
+
+  function setPrice(col: string, field: "price" | "days", val: string | number) {
+    setPrices((prev) => ({ ...prev, [col]: { ...prev[col], [field]: val } }));
+    if (field === "price") setPriceErrors((prev) => ({ ...prev, [col]: "" }));
+  }
+
+  function validatePrices(): boolean {
+    const errs: Record<string, string> = {};
+    for (const row of visiblePriceRows) {
+      const raw = prices[row.col].price;
+      if (!raw) continue;
+      const n = parseFloat(raw);
+      if (isNaN(n) || n < MIN_PRICE)
+        errs[row.col] = `Minimum ₺${MIN_PRICE.toLocaleString("tr-TR")} olmalıdır.`;
+    }
+    setPriceErrors(errs);
+    return Object.keys(errs).length === 0;
+  }
+
+  // ── Navigation ──
+
+  function goNext() {
+    if (step === 3 && !validatePrices()) return;
+    setStep((s) => s + 1);
+  }
+
+  // ── Save ──
+
+  async function handleSave() {
+    setSaving(true);
+    setSaveError("");
+
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { router.push("/login"); return; }
+
+    const toNum = (col: string) => {
+      const v = prices[col]?.price;
+      return v && !isNaN(parseFloat(v)) ? parseFloat(v) : null;
+    };
+
+    const { error } = await supabase.from("yayinci_profiles").upsert({
+      id:              user.id,
+      bio:             bio.trim(),
+      platforms:       [...new Set(socialAccounts.map((a) => a.platform))],
+      social_accounts: socialAccounts,
+      categories,
+      visibility,
+      price_story:     toNum("price_story"),
+      price_reels:     toNum("price_reels"),
+      price_tiktok:    toNum("price_tiktok"),
+      price_youtube:   toNum("price_youtube"),
+      price_stream:    toNum("price_stream"),
+      price_tweet:     toNum("price_tweet"),
+    });
+
+    if (error) {
+      console.error("[profile/complete] upsert error:", error);
+      console.error("[profile/complete] upsert details:", JSON.stringify(error));
+      setSaveError("Profil kaydedilirken bir hata oluştu: " + error.message);
+      setSaving(false);
+      return;
+    }
+
+    router.push("/dashboard");
+  }
+
+  // ─── Render ──────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <header className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-50">
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16">
+          <a href="/" className="text-2xl font-extrabold tracking-tight" style={{ color: "#185FA5" }}>Sponsorum</a>
+          <span className="text-xs font-semibold text-gray-400">Profil Kurulumu</span>
+        </div>
+      </header>
+
+      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-10">
+        <ProgressBar current={step} />
+
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-7 sm:p-9">
+
+          {/* ── Step 1: Sosyal Medya ── */}
+          {step === 1 && (
+            <div>
+              <h2 className="text-xl font-extrabold mb-1" style={{ color: "#042C53" }}>Sosyal Medya Hesapları</h2>
+              <p className="text-sm text-gray-500 mb-7">Hangi platformlarda içerik ürettiğini ve istatistiklerini ekle.</p>
+
+              {/* Add form */}
+              <div className="rounded-xl border border-gray-200 p-5 mb-5">
+                {/* Platform + username row */}
+                <div className="flex gap-2 mb-4">
+                  <select
+                    value={selPlatform}
+                    onChange={(e) => handlePlatformChange(e.target.value)}
+                    className="rounded-xl border border-gray-200 px-3 py-3 text-sm outline-none focus:border-[#185FA5] focus:ring-2 focus:ring-[#185FA5]/20 bg-white flex-shrink-0"
+                  >
+                    {PLATFORMS.map((p) => (
+                      <option key={p} value={p}>{PLATFORM_ICONS[p]} {p}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    placeholder="Kullanıcı adın (@ olmadan)"
+                    value={selUsername}
+                    onChange={(e) => setSelUsername(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addAccount())}
+                    className={inputCls + " flex-1"}
+                  />
+                </div>
+
+                {/* Platform-specific stat fields */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                  {PLATFORM_STAT_FIELDS[selPlatform].map((field) => (
+                    <div key={field.key}>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1.5">{field.label}</label>
+                      <input
+                        type="number"
+                        min={0}
+                        placeholder={field.placeholder}
+                        value={selStats[field.key] ?? ""}
+                        onChange={(e) => setSelStats((prev) => ({ ...prev, [field.key]: e.target.value }))}
+                        className={inputCls}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                {addError && <p className="text-xs text-red-600 mb-3">{addError}</p>}
+
+                <button
+                  onClick={addAccount}
+                  className="w-full rounded-xl py-2.5 text-sm font-semibold text-white transition-all hover:opacity-90"
+                  style={{ backgroundColor: "#185FA5" }}
+                >
+                  + Hesap Ekle
+                </button>
+              </div>
+
+              {/* Added accounts list */}
+              {socialAccounts.length > 0 ? (
+                <div className="flex flex-col gap-3">
+                  {socialAccounts.map((acc, i) => {
+                    const fields = PLATFORM_STAT_FIELDS[acc.platform] ?? [];
+                    return (
+                      <div key={i} className="rounded-xl border border-gray-100 p-4" style={{ backgroundColor: "#F9FAFB" }}>
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2.5">
+                            <span className="text-xl">{PLATFORM_ICONS[acc.platform]}</span>
+                            <div>
+                              <span className="text-sm font-bold text-gray-800">{acc.platform}</span>
+                              <span className="text-sm text-gray-500 ml-2">@{acc.username}</span>
+                            </div>
+                          </div>
+                          <button onClick={() => removeAccount(i)} className="text-gray-400 hover:text-red-500 transition-colors text-xl leading-none">×</button>
+                        </div>
+                        {/* Stats chips */}
+                        <div className="flex flex-wrap gap-2">
+                          {fields.map((f) => (
+                            acc.stats[f.key] ? (
+                              <span key={f.key} className="text-xs font-medium rounded-full px-2.5 py-1" style={{ backgroundColor: "#E6F1FB", color: "#185FA5" }}>
+                                {f.label}: <strong>{fmt(acc.stats[f.key])}</strong>
+                              </span>
+                            ) : null
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-xl border-2 border-dashed border-gray-200 py-8 text-center text-sm text-gray-400">
+                  Henüz hesap eklenmedi.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Step 2: Niş & Kategori ── */}
+          {step === 2 && (
+            <div>
+              <h2 className="text-xl font-extrabold mb-1" style={{ color: "#042C53" }}>Niş & Kategori</h2>
+              <p className="text-sm text-gray-500 mb-7">En fazla 3 kategori seç ve kendini tanıt.</p>
+
+              <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">
+                Kategoriler <span className="ml-1 text-gray-300">({categories.length}/3)</span>
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-7">
+                {CATEGORIES.map((cat) => {
+                  const sel = categories.includes(cat.label);
+                  const dis = !sel && categories.length >= 3;
+                  return (
+                    <button
+                      key={cat.label}
+                      onClick={() => !dis && toggleCategory(cat.label)}
+                      disabled={dis}
+                      className="flex items-center gap-2.5 rounded-xl border-2 px-4 py-3 text-sm font-semibold transition-all text-left disabled:opacity-40 disabled:cursor-not-allowed"
+                      style={{ borderColor: sel ? "#185FA5" : "#E5E7EB", backgroundColor: sel ? "#EBF4FF" : "white", color: sel ? "#185FA5" : "#374151" }}
+                    >
+                      <span>{cat.emoji}</span>{cat.label}{sel && <span className="ml-auto text-xs">✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">Hakkında</p>
+              <textarea
+                rows={4}
+                placeholder="Kendini markalar için tanıt. İçerik tarzın, hedef kitlen ve iş birliği tercihlerinden bahset."
+                value={bio}
+                onChange={(e) => setBio(e.target.value)}
+                maxLength={500}
+                className={inputCls + " resize-none"}
+              />
+              <p className="text-xs text-gray-400 mt-1.5 text-right">{bio.length}/500</p>
+            </div>
+          )}
+
+          {/* ── Step 3: Fiyatlar ── */}
+          {step === 3 && (
+            <div>
+              <h2 className="text-xl font-extrabold mb-1" style={{ color: "#042C53" }}>Fiyat Listesi</h2>
+              <p className="text-sm text-gray-500 mb-2">Eklediğin platformlara göre içerik fiyatlarını belirle.</p>
+              <div className="inline-flex items-center gap-1.5 text-xs font-semibold rounded-full px-3 py-1 mb-6" style={{ backgroundColor: "#FFF3E0", color: "#E65100" }}>
+                ⚠ Minimum fiyat ₺{MIN_PRICE.toLocaleString("tr-TR")}
+              </div>
+
+              {visiblePriceRows.length === 0 ? (
+                <div className="rounded-xl border-2 border-dashed border-gray-200 py-10 text-center text-sm text-gray-400">
+                  Adım 1&apos;de sosyal medya hesabı eklemen gerekiyor.
+                </div>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  {visiblePriceRows.map((row) => (
+                    <div key={row.col} className="rounded-xl border border-gray-100 p-5" style={{ backgroundColor: "#FAFAFA" }}>
+                      <div className="flex items-center gap-2 mb-4">
+                        <span className="text-base">{row.icon}</span>
+                        <span className="text-sm font-bold" style={{ color: "#042C53" }}>{row.label}</span>
+                        {row.platforms.length > 1 && (
+                          <span className="text-xs text-gray-400 ml-1">({row.platforms.filter(p => addedPlatforms.has(p)).join(" & ")})</span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 mb-1.5">Fiyat (₺)</label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-medium">₺</span>
+                            <input
+                              type="number"
+                              min={MIN_PRICE}
+                              placeholder={String(MIN_PRICE)}
+                              value={prices[row.col].price}
+                              onChange={(e) => setPrice(row.col, "price", e.target.value)}
+                              className={inputCls + " pl-7"}
+                            />
+                          </div>
+                          {priceErrors[row.col] && <p className="text-xs text-red-600 mt-1">{priceErrors[row.col]}</p>}
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 mb-1.5">Teslimat</label>
+                          <select
+                            value={prices[row.col].days}
+                            onChange={(e) => setPrice(row.col, "days", parseInt(e.target.value))}
+                            className={inputCls}
+                          >
+                            {DELIVERY_OPTIONS.map((d) => (
+                              <option key={d} value={d}>{d} gün</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Step 4: Görünürlük ── */}
+          {step === 4 && (
+            <div>
+              <h2 className="text-xl font-extrabold mb-1" style={{ color: "#042C53" }}>Görünürlük Ayarı</h2>
+              <p className="text-sm text-gray-500 mb-7">Profilinin platformda nasıl görüneceğini seç.</p>
+              <div className="flex flex-col gap-3 mb-8">
+                {VISIBILITY_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.id}
+                    onClick={() => setVisibility(opt.id)}
+                    className="flex items-start gap-4 rounded-xl border-2 p-5 text-left transition-all"
+                    style={{ borderColor: visibility === opt.id ? "#185FA5" : "#E5E7EB", backgroundColor: visibility === opt.id ? "#EBF4FF" : "white" }}
+                  >
+                    <span className="text-2xl mt-0.5 flex-shrink-0">{opt.emoji}</span>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-bold" style={{ color: visibility === opt.id ? "#185FA5" : "#042C53" }}>{opt.label}</span>
+                        <span className="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0" style={{ borderColor: visibility === opt.id ? "#185FA5" : "#D1D5DB" }}>
+                          {visibility === opt.id && <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "#185FA5" }} />}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500 leading-relaxed">{opt.desc}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+              {saveError && (
+                <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 mb-4">{saveError}</div>
+              )}
+            </div>
+          )}
+
+          {/* ── Navigation ── */}
+          <div className={`flex mt-8 ${step > 1 ? "justify-between" : "justify-end"}`}>
+            {step > 1 && (
+              <button onClick={() => setStep((s) => s - 1)} disabled={saving}
+                className="rounded-xl px-6 py-3 text-sm font-semibold border-2 transition-all hover:bg-gray-50 disabled:opacity-50"
+                style={{ borderColor: "#E5E7EB", color: "#6B7280" }}>
+                ← Geri
+              </button>
+            )}
+            {step < 4 ? (
+              <button onClick={goNext}
+                className="rounded-xl px-8 py-3 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98]"
+                style={{ backgroundColor: "#185FA5" }}
+                onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#042C53")}
+                onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#185FA5")}>
+                İleri →
+              </button>
+            ) : (
+              <button onClick={handleSave} disabled={saving}
+                className="rounded-xl px-8 py-3 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
+                style={{ backgroundColor: "#185FA5" }}
+                onMouseEnter={e => { if (!saving) e.currentTarget.style.backgroundColor = "#042C53"; }}
+                onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#185FA5"; }}>
+                {saving ? "Kaydediliyor…" : "Profili Tamamla ✓"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        <p className="text-center text-xs text-gray-400 mt-5">
+          Adım {step} / {STEPS.length} — {STEPS[step - 1].label}
+        </p>
+      </div>
+    </div>
+  );
+}
