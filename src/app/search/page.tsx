@@ -164,7 +164,8 @@ async function fetchInfluencers(): Promise<Influencer[]> {
   const profileMap = Object.fromEntries(profileRows.map((p) => [p.id, p]));
 
   // 4. Merge and derive
-  return ypRows.map((yp) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ypRows.map((yp: any) => {
     const profile = profileMap[yp.id];
     const accounts: SocialAccount[] = yp.social_accounts ?? [];
     const categories: string[]      = yp.categories ?? [];
