@@ -5,30 +5,114 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 
 type Role = "yayinci" | "marka" | null;
-type Step = "role" | "form";
+type Step = "role" | "form" | "confirm-email";
 
-const ERRORS: Record<string, string> = {
-  "User already registered": "Bu e-posta adresi zaten kayıtlı.",
-  "Password should be at least 6 characters": "Şifre en az 6 karakter olmalıdır.",
-  "Unable to validate email address": "Geçerli bir e-posta adresi gir.",
-  "Signup is disabled": "Şu anda kayıt kapalıdır.",
+const AUTH_ERRORS: Record<string, string> = {
+  "User already registered":           "Bu e-posta adresi zaten kayıtlı.",
+  "Password should be at least 6":     "Şifre en az 6 karakter olmalıdır.",
+  "Unable to validate email address":  "Geçerli bir e-posta adresi gir.",
+  "Signup is disabled":                "Şu anda kayıt kapalıdır.",
 };
 
-function turkishError(msg: string): string {
-  for (const [key, val] of Object.entries(ERRORS)) {
-    if (msg.includes(key)) return val;
+const DB_ERRORS: Record<string, string> = {
+  "duplicate key":   "Bu hesap zaten mevcut.",
+  "violates foreign": "Hesap oluşturulurken bir hata oluştu.",
+  "row-level":       "Profil kaydedilemedi. Lütfen destek ile iletişime geç.",
+};
+
+function turkishError(msg: string, map: Record<string, string>): string {
+  for (const [key, val] of Object.entries(map)) {
+    if (msg.toLowerCase().includes(key.toLowerCase())) return val;
   }
   return "Bir hata oluştu. Lütfen tekrar dene.";
 }
 
+// ─── Field component ──────────────────────────────────────────────────────────
+
+function Field({
+  label,
+  hint,
+  required = true,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  required?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-sm font-semibold" style={{ color: "#042C53" }}>
+        {label}
+        {!required && <span className="ml-1 text-xs font-normal text-gray-400">(isteğe bağlı)</span>}
+      </label>
+      {hint && <p className="text-xs text-gray-400 -mt-1">{hint}</p>}
+      {children}
+    </div>
+  );
+}
+
+const inputCls =
+  "w-full rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-900 placeholder-gray-400 outline-none transition-all focus:border-[#185FA5] focus:ring-2 focus:ring-[#185FA5]/20 disabled:opacity-60";
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
 export default function RegisterPage() {
   const router = useRouter();
-  const [step, setStep] = useState<Step>("role");
-  const [selected, setSelected] = useState<Role>(null);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+
+  const [step, setStep]             = useState<Step>("role");
+  const [selected, setSelected]     = useState<Role>(null);
+
+  // Shared fields
+  const [email, setEmail]           = useState("");
+  const [password, setPassword]     = useState("");
+  const [displayName, setDisplayName] = useState("");
+
+  // Marka-only fields
+  const [companyName, setCompanyName] = useState("");
+  const [taxNumber, setTaxNumber]     = useState("");
+
+  const [error, setError]   = useState("");
   const [loading, setLoading] = useState(false);
+
+  async function insertProfiles(userId: string) {
+    const supabase = createClient();
+
+    const { error: profileError } = await supabase.from("profiles").insert({
+      id:           userId,
+      role:         selected,
+      display_name: displayName.trim(),
+      created_at:   new Date().toISOString(),
+    });
+
+    if (profileError) {
+      console.error("[register] profiles insert failed:", profileError);
+      throw new Error(turkishError(profileError.message, DB_ERRORS));
+    }
+
+    if (selected === "marka") {
+      const { error: markaError } = await supabase.from("marka_profiles").insert({
+        id:           userId,
+        company_name: companyName.trim(),
+        tax_number:   taxNumber.trim(),
+      });
+      if (markaError) {
+        console.error("[register] marka_profiles insert failed:", markaError);
+        throw new Error(turkishError(markaError.message, DB_ERRORS));
+      }
+    } else {
+      const { error: yayinciError } = await supabase.from("yayinci_profiles").insert({
+        id:        userId,
+        bio:       "",
+        platforms: [],
+      });
+      if (yayinciError) {
+        console.error("[register] yayinci_profiles insert failed:", yayinciError);
+        console.error("[register] yayinci_profiles error details:", JSON.stringify(yayinciError));
+        throw new Error(turkishError(yayinciError.message, DB_ERRORS));
+      }
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -36,21 +120,60 @@ export default function RegisterPage() {
     setLoading(true);
 
     const supabase = createClient();
-    const { error } = await supabase.auth.signUp({
+
+    // 1. Sign up
+    const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: { role: selected },
+        data: { role: selected, display_name: displayName },
       },
     });
 
-    if (error) {
-      setError(turkishError(error.message));
+    if (authError) {
+      console.error("[register] signUp failed:", authError);
+      setError(turkishError(authError.message, AUTH_ERRORS));
       setLoading(false);
       return;
     }
 
-    router.push("/dashboard");
+    const user = authData.user;
+    if (!user) {
+      console.error("[register] signUp returned no user");
+      setError("Hesap oluşturulamadı. Lütfen tekrar dene.");
+      setLoading(false);
+      return;
+    }
+
+    console.log("[register] signUp success. session:", authData.session ? "exists" : "null (email confirmation required)");
+
+    // 2a. Session exists → email confirmation is OFF → insert profiles now
+    if (authData.session) {
+      try {
+        await insertProfiles(user.id);
+        router.push("/dashboard");
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "Profil kaydedilemedi.");
+        setLoading(false);
+      }
+      return;
+    }
+
+    // 2b. No session → email confirmation is ON
+    // Store pending profile data in localStorage so dashboard can finish the insert after confirmation
+    console.log("[register] storing pending profile for post-confirmation insert");
+    localStorage.setItem(
+      "pendingProfile",
+      JSON.stringify({
+        userId:      user.id,
+        role:        selected,
+        displayName: displayName.trim(),
+        companyName: companyName.trim(),
+        taxNumber:   taxNumber.trim(),
+      })
+    );
+    setStep("confirm-email");
+    setLoading(false);
   }
 
   return (
@@ -67,6 +190,7 @@ export default function RegisterPage() {
       <div className="flex-1 flex items-center justify-center px-4 py-16">
         <div className="w-full max-w-2xl">
 
+          {/* ── Step 1: Role selection ── */}
           {step === "role" && (
             <>
               <div className="mb-10 text-center">
@@ -75,47 +199,40 @@ export default function RegisterPage() {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-8">
-                <button
-                  onClick={() => setSelected("yayinci")}
-                  className="relative flex flex-col items-center text-center gap-4 rounded-2xl border-2 p-8 transition-all hover:-translate-y-1 hover:shadow-lg focus:outline-none bg-white"
-                  style={{ borderColor: selected === "yayinci" ? "#185FA5" : "#E6F1FB" }}
-                >
-                  {selected === "yayinci" && (
-                    <span className="absolute top-4 right-4 w-5 h-5 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: "#185FA5" }}>
-                      ✓
-                    </span>
-                  )}
-                  <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl" style={{ backgroundColor: "#E6F1FB" }}>
-                    🎙️
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-extrabold mb-1" style={{ color: "#042C53" }}>Yayıncı Olarak Kayıt</h2>
-                    <p className="text-sm text-gray-500 leading-relaxed">
-                      İçerik üreticisi, influencer veya yayıncı olarak platforma katıl. Markalardan sponsorluk teklifleri al.
-                    </p>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => setSelected("marka")}
-                  className="relative flex flex-col items-center text-center gap-4 rounded-2xl border-2 p-8 transition-all hover:-translate-y-1 hover:shadow-lg focus:outline-none bg-white"
-                  style={{ borderColor: selected === "marka" ? "#185FA5" : "#E6F1FB" }}
-                >
-                  {selected === "marka" && (
-                    <span className="absolute top-4 right-4 w-5 h-5 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: "#185FA5" }}>
-                      ✓
-                    </span>
-                  )}
-                  <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl" style={{ backgroundColor: "#E6F1FB" }}>
-                    🏢
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-extrabold mb-1" style={{ color: "#042C53" }}>Marka Olarak Kayıt</h2>
-                    <p className="text-sm text-gray-500 leading-relaxed">
-                      Ürün veya hizmetini tanıtmak için doğru yayıncıyı bul. Bütçene uygun sponsorluk anlaşmaları yap.
-                    </p>
-                  </div>
-                </button>
+                {[
+                  {
+                    id: "yayinci" as Role,
+                    emoji: "🎙️",
+                    title: "Yayıncı Olarak Kayıt",
+                    desc: "İçerik üreticisi, influencer veya yayıncı olarak platforma katıl. Markalardan sponsorluk teklifleri al.",
+                  },
+                  {
+                    id: "marka" as Role,
+                    emoji: "🏢",
+                    title: "Marka Olarak Kayıt",
+                    desc: "Ürün veya hizmetini tanıtmak için doğru yayıncıyı bul. Bütçene uygun sponsorluk anlaşmaları yap.",
+                  },
+                ].map((opt) => (
+                  <button
+                    key={opt.id}
+                    onClick={() => setSelected(opt.id)}
+                    className="relative flex flex-col items-center text-center gap-4 rounded-2xl border-2 p-8 transition-all hover:-translate-y-1 hover:shadow-lg focus:outline-none bg-white"
+                    style={{ borderColor: selected === opt.id ? "#185FA5" : "#E6F1FB" }}
+                  >
+                    {selected === opt.id && (
+                      <span className="absolute top-4 right-4 w-5 h-5 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: "#185FA5" }}>
+                        ✓
+                      </span>
+                    )}
+                    <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl" style={{ backgroundColor: "#E6F1FB" }}>
+                      {opt.emoji}
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-extrabold mb-1" style={{ color: "#042C53" }}>{opt.title}</h2>
+                      <p className="text-sm text-gray-500 leading-relaxed">{opt.desc}</p>
+                    </div>
+                  </button>
+                ))}
               </div>
 
               <div className="flex flex-col items-center gap-4">
@@ -129,17 +246,40 @@ export default function RegisterPage() {
                 >
                   {selected === "yayinci" ? "Yayıncı Olarak Devam Et →" : selected === "marka" ? "Marka Olarak Devam Et →" : "Devam Et"}
                 </button>
-
                 <p className="text-sm text-gray-500">
                   Zaten hesabın var mı?{" "}
-                  <a href="/login" className="font-semibold hover:underline" style={{ color: "#185FA5" }}>
-                    Giriş Yap
-                  </a>
+                  <a href="/login" className="font-semibold hover:underline" style={{ color: "#185FA5" }}>Giriş Yap</a>
                 </p>
               </div>
             </>
           )}
 
+          {/* ── Step 3: Email confirmation waiting ── */}
+          {step === "confirm-email" && (
+            <div className="max-w-md mx-auto text-center">
+              <div className="bg-white rounded-2xl shadow-lg p-10">
+                <div className="w-16 h-16 rounded-full flex items-center justify-center text-2xl mx-auto mb-6" style={{ backgroundColor: "#E6F1FB" }}>
+                  📧
+                </div>
+                <h2 className="text-2xl font-extrabold mb-3" style={{ color: "#042C53" }}>E-postanı Onayla</h2>
+                <p className="text-sm text-gray-500 leading-relaxed mb-2">
+                  <span className="font-semibold text-gray-700">{email}</span> adresine bir onay bağlantısı gönderdik.
+                </p>
+                <p className="text-sm text-gray-500 leading-relaxed mb-8">
+                  Bağlantıya tıkladıktan sonra giriş yapabilir ve profil kurulumunu tamamlayabilirsin.
+                </p>
+                <a
+                  href="/login"
+                  className="inline-block w-full rounded-xl py-3 text-sm font-semibold text-white transition-all hover:opacity-90"
+                  style={{ backgroundColor: "#185FA5" }}
+                >
+                  Giriş Sayfasına Git
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* ── Step 2: Registration form ── */}
           {step === "form" && (
             <div className="max-w-md mx-auto">
               <button
@@ -159,8 +299,53 @@ export default function RegisterPage() {
                 </div>
 
                 <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-semibold" style={{ color: "#042C53" }}>E-posta</label>
+
+                  {/* Display name — both roles */}
+                  <Field label="Ad Soyad">
+                    <input
+                      type="text"
+                      placeholder={selected === "marka" ? "Yetkili kişinin adı" : "Adın ve soyadın"}
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      required
+                      disabled={loading}
+                      className={inputCls}
+                    />
+                  </Field>
+
+                  {/* Marka-only fields */}
+                  {selected === "marka" && (
+                    <>
+                      <Field label="Şirket Adı" hint="Fatura ve sözleşmelerde kullanılacaktır.">
+                        <input
+                          type="text"
+                          placeholder="Örn: Acme Teknoloji A.Ş."
+                          value={companyName}
+                          onChange={(e) => setCompanyName(e.target.value)}
+                          required
+                          disabled={loading}
+                          className={inputCls}
+                        />
+                      </Field>
+
+                      <Field label="Vergi Numarası" hint="10 haneli vergi kimlik numaranız.">
+                        <input
+                          type="text"
+                          placeholder="0000000000"
+                          value={taxNumber}
+                          onChange={(e) => setTaxNumber(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                          required
+                          minLength={10}
+                          maxLength={10}
+                          disabled={loading}
+                          className={inputCls}
+                        />
+                      </Field>
+                    </>
+                  )}
+
+                  {/* E-posta */}
+                  <Field label="E-posta">
                     <input
                       type="email"
                       placeholder="ornek@email.com"
@@ -168,12 +353,12 @@ export default function RegisterPage() {
                       onChange={(e) => setEmail(e.target.value)}
                       required
                       disabled={loading}
-                      className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-900 placeholder-gray-400 outline-none transition-all focus:border-[#185FA5] focus:ring-2 focus:ring-[#185FA5]/20 disabled:opacity-60"
+                      className={inputCls}
                     />
-                  </div>
+                  </Field>
 
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-semibold" style={{ color: "#042C53" }}>Şifre</label>
+                  {/* Şifre */}
+                  <Field label="Şifre">
                     <input
                       type="password"
                       placeholder="En az 6 karakter"
@@ -182,9 +367,9 @@ export default function RegisterPage() {
                       required
                       minLength={6}
                       disabled={loading}
-                      className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-900 placeholder-gray-400 outline-none transition-all focus:border-[#185FA5] focus:ring-2 focus:ring-[#185FA5]/20 disabled:opacity-60"
+                      className={inputCls}
                     />
-                  </div>
+                  </Field>
 
                   {error && (
                     <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
@@ -214,6 +399,7 @@ export default function RegisterPage() {
               </div>
             </div>
           )}
+
         </div>
       </div>
     </div>

@@ -74,13 +74,57 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data }) => {
+
+    supabase.auth.getUser().then(async ({ data }) => {
       if (!data.user) {
         router.push("/login");
         return;
       }
+
       setEmail(data.user.email ?? null);
       setRole((data.user.user_metadata?.role as Role) ?? null);
+
+      // Finish deferred profile insert (email-confirmed users)
+      const pending = localStorage.getItem("pendingProfile");
+      if (pending) {
+        try {
+          const p = JSON.parse(pending) as {
+            userId: string; role: string; displayName: string;
+            companyName: string; taxNumber: string;
+          };
+
+          // Only run if this user matches the stored id
+          if (p.userId === data.user.id) {
+            console.log("[dashboard] inserting deferred profile for", p.userId);
+
+            const { error: profileError } = await supabase.from("profiles").insert({
+              id: p.userId, role: p.role, display_name: p.displayName,
+              created_at: new Date().toISOString(),
+            });
+            if (profileError) console.error("[dashboard] profiles insert:", profileError);
+
+            if (p.role === "marka") {
+              const { error: e } = await supabase.from("marka_profiles").insert({
+                id: p.userId, company_name: p.companyName, tax_number: p.taxNumber,
+              });
+              if (e) console.error("[dashboard] marka_profiles insert:", e);
+            } else {
+              const { error: e } = await supabase.from("yayinci_profiles").insert({
+                id: p.userId, bio: "", platforms: [],
+              });
+              if (e) console.error("[dashboard] yayinci_profiles insert:", e);
+            }
+
+            localStorage.removeItem("pendingProfile");
+            // Update role from stored data if metadata not set yet
+            setRole(p.role as Role);
+          }
+        } catch (err) {
+          console.error("[dashboard] pending profile parse error:", err);
+          localStorage.removeItem("pendingProfile");
+        }
+      }
+
       setLoading(false);
     });
   }, [router]);
