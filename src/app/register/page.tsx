@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 
 type Role = "yayinci" | "marka" | null;
 type Step = "role" | "form" | "confirm-email";
+type UsernameStatus = "idle" | "checking" | "available" | "taken" | "invalid";
 
 const AUTH_ERRORS: Record<string, string> = {
   "User already registered":           "Bu e-posta adresi zaten kayıtlı.",
@@ -67,6 +68,9 @@ export default function RegisterPage() {
   const [email, setEmail]           = useState("");
   const [password, setPassword]     = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [username, setUsername]     = useState("");
+  const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>("idle");
+  const usernameTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Marka-only fields
   const [companyName, setCompanyName] = useState("");
@@ -75,6 +79,29 @@ export default function RegisterPage() {
   const [error, setError]   = useState("");
   const [loading, setLoading] = useState(false);
 
+  const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
+
+  function handleUsernameChange(raw: string) {
+    const val = raw.toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 20);
+    setUsername(val);
+
+    if (usernameTimer.current) clearTimeout(usernameTimer.current);
+
+    if (!val) { setUsernameStatus("idle"); return; }
+    if (!USERNAME_RE.test(val)) { setUsernameStatus("invalid"); return; }
+
+    setUsernameStatus("checking");
+    usernameTimer.current = setTimeout(async () => {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("username", val)
+        .maybeSingle();
+      setUsernameStatus(data ? "taken" : "available");
+    }, 500);
+  }
+
   async function insertProfiles(userId: string) {
     const supabase = createClient();
 
@@ -82,6 +109,7 @@ export default function RegisterPage() {
       id:           userId,
       role:         selected,
       display_name: displayName.trim(),
+      username:     username.trim(),
       created_at:   new Date().toISOString(),
     });
 
@@ -117,6 +145,16 @@ export default function RegisterPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+
+    if (!USERNAME_RE.test(username)) {
+      setError("Kullanıcı adı 3-20 karakter olmalı; sadece küçük harf, rakam ve alt çizgi (_) kullanılabilir.");
+      return;
+    }
+    if (usernameStatus !== "available") {
+      setError(usernameStatus === "taken" ? "Bu kullanıcı adı alınmış. Lütfen başka bir tane seç." : "Kullanıcı adı müsaitliği kontrol ediliyor, lütfen bekle.");
+      return;
+    }
+
     setLoading(true);
 
     const supabase = createClient();
@@ -168,6 +206,7 @@ export default function RegisterPage() {
         userId:      user.id,
         role:        selected,
         displayName: displayName.trim(),
+        username:    username.trim(),
         companyName: companyName.trim(),
         taxNumber:   taxNumber.trim(),
       })
@@ -313,6 +352,40 @@ export default function RegisterPage() {
                     />
                   </Field>
 
+                  {/* Username — both roles */}
+                  <Field label="Kullanıcı Adı" hint="3-20 karakter; sadece küçük harf, rakam ve alt çizgi (_).">
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="kullanici_adi"
+                        value={username}
+                        onChange={(e) => handleUsernameChange(e.target.value)}
+                        required
+                        disabled={loading}
+                        className={inputCls + " pr-10"}
+                        autoComplete="username"
+                      />
+                      {usernameStatus === "checking" && (
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">…</span>
+                      )}
+                      {usernameStatus === "available" && (
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-green-500 font-bold">✓</span>
+                      )}
+                      {(usernameStatus === "taken" || usernameStatus === "invalid") && (
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-red-500 font-bold">✗</span>
+                      )}
+                    </div>
+                    {usernameStatus === "available" && (
+                      <p className="text-xs text-green-600 mt-1">Kullanılabilir</p>
+                    )}
+                    {usernameStatus === "taken" && (
+                      <p className="text-xs text-red-600 mt-1">Bu kullanıcı adı alınmış</p>
+                    )}
+                    {usernameStatus === "invalid" && (
+                      <p className="text-xs text-red-600 mt-1">En az 3 karakter gerekli; sadece a-z, 0-9 ve _</p>
+                    )}
+                  </Field>
+
                   {/* Marka-only fields */}
                   {selected === "marka" && (
                     <>
@@ -379,7 +452,7 @@ export default function RegisterPage() {
 
                   <button
                     type="submit"
-                    disabled={loading}
+                    disabled={loading || usernameStatus === "checking" || usernameStatus === "taken" || usernameStatus === "invalid"}
                     className="w-full rounded-xl py-3.5 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] mt-2 disabled:opacity-60 disabled:cursor-not-allowed"
                     style={{ backgroundColor: "#185FA5" }}
                     onMouseEnter={e => { if (!loading) e.currentTarget.style.backgroundColor = "#042C53"; }}
@@ -391,9 +464,9 @@ export default function RegisterPage() {
 
                 <p className="text-center text-xs text-gray-400 mt-6 leading-relaxed">
                   Kayıt olarak{" "}
-                  <a href="#" className="underline hover:text-gray-600">Kullanım Şartları</a>
+                  <a href="/kullanim-sartlari" className="underline hover:text-gray-600">Kullanım Şartları</a>
                   {" "}ve{" "}
-                  <a href="#" className="underline hover:text-gray-600">Gizlilik Politikası</a>
+                  <a href="/gizlilik-politikasi" className="underline hover:text-gray-600">Gizlilik Politikası</a>
                   &apos;nı kabul etmiş olursun.
                 </p>
               </div>

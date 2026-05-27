@@ -89,7 +89,7 @@ export default function DashboardPage() {
       if (pending) {
         try {
           const p = JSON.parse(pending) as {
-            userId: string; role: string; displayName: string;
+            userId: string; role: string; displayName: string; username: string;
             companyName: string; taxNumber: string;
           };
 
@@ -99,6 +99,7 @@ export default function DashboardPage() {
 
             const { error: profileError } = await supabase.from("profiles").insert({
               id: p.userId, role: p.role, display_name: p.displayName,
+              username: p.username,
               created_at: new Date().toISOString(),
             });
             if (profileError) console.error("[dashboard] profiles insert:", profileError);
