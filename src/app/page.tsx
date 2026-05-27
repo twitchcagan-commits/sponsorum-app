@@ -227,10 +227,10 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <span className="text-sm text-gray-400">© 2026 Sponsorum. Tüm hakları saklıdır.</span>
           <div className="flex items-center gap-6 text-sm text-gray-500">
-            <a href="#" className="hover:text-[#185FA5] transition-colors">Kullanım Şartları</a>
-            <a href="#" className="hover:text-[#185FA5] transition-colors">Gizlilik</a>
-            <a href="#" className="hover:text-[#185FA5] transition-colors">KVKK</a>
-            <a href="#" className="hover:text-[#185FA5] transition-colors">İletişim</a>
+            <a href="/kullanim-sartlari" className="hover:text-[#185FA5] transition-colors">Kullanım Şartları</a>
+            <a href="/gizlilik-politikasi" className="hover:text-[#185FA5] transition-colors">Gizlilik</a>
+            <a href="/kvkk" className="hover:text-[#185FA5] transition-colors">KVKK</a>
+            <a href="/cerez-politikasi" className="hover:text-[#185FA5] transition-colors">Çerezler</a>
           </div>
         </div>
       </footer>

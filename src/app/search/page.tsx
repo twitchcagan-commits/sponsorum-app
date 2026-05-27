@@ -140,14 +140,15 @@ async function fetchInfluencers(): Promise<Influencer[]> {
   const ids = profileRows.map((p) => p.id);
 
   // 2. Get yayinci_profiles for open/visible profiles
-  const { data: ypRows, error: ypErr } = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: ypRows, error: ypErr } = await (supabase
     .from("yayinci_profiles")
     .select([
       "id", "categories", "social_accounts", "platforms", "niche", "followers_count", "visibility",
       ...PRICE_COLS,
     ].join(", "))
     .in("id", ids)
-    .eq("visibility", "acik");
+    .eq("visibility", "acik") as any);
 
   console.log("[search] yayinci_profiles data:", JSON.stringify(ypRows));
   console.log("[search] yayinci_profiles error:", ypErr);
