@@ -1,5 +1,5 @@
 "use client";
-
+// Search page — yayinci discovery with platform/niche/follower filters
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase";
 
