@@ -1,29 +1,32 @@
 "use client";
 
+/*
+  Requires a username column on the profiles table:
+
+  alter table profiles
+    add column if not exists username text unique;
+
+  Update existing yayinci rows:
+    update profiles set username = lower(replace(display_name, ' ', ''))
+    where role = 'yayinci';
+*/
+
 import { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase";
 
 // ─── Types & config ───────────────────────────────────────────────────────────
 
 type ContentType = "reels" | "story" | "tiktok" | "paket";
 
 const CONTENT_TYPES: { id: ContentType; label: string; platform: string; price: number; days: number }[] = [
-  { id: "reels",  label: "Instagram Reels (60 sn)", platform: "Instagram", price: 3500, days: 3 },
-  { id: "story",  label: "Instagram Story",          platform: "Instagram", price: 1200, days: 1 },
-  { id: "tiktok", label: "TikTok Video",             platform: "TikTok",    price: 2800, days: 3 },
-  { id: "paket",  label: "Paket (Reels + Story + TikTok)", platform: "Multi", price: 6000, days: 5 },
+  { id: "reels",  label: "Instagram Reels (60 sn)",       platform: "Instagram", price: 3500, days: 3 },
+  { id: "story",  label: "Instagram Story",                platform: "Instagram", price: 1200, days: 1 },
+  { id: "tiktok", label: "TikTok Video",                   platform: "TikTok",    price: 2800, days: 3 },
+  { id: "paket",  label: "Paket (Reels + Story + TikTok)", platform: "Multi",     price: 6000, days: 5 },
 ];
 
 const PLATFORM_FEE = 0.15;
-
-const CREATOR = {
-  username: "gamerturk",
-  displayName: "Burak K.",
-  initials: "BK",
-  niche: "Oyun",
-  rating: 4.9,
-  dealsCompleted: 12,
-};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -43,17 +46,24 @@ function SummaryCard({
   username,
   selected,
   budget,
+  deadline,
+  brief,
   onSubmit,
   loading,
+  submitError,
 }: {
   username: string;
   selected: (typeof CONTENT_TYPES)[0] | null;
   budget: number;
+  deadline: string;
+  brief: string;
   onSubmit: () => void;
   loading: boolean;
+  submitError: string;
 }) {
   const fee = budget * PLATFORM_FEE;
   const total = budget + fee;
+  const canSubmit = !!selected && budget > 0 && !!deadline && !!brief.trim() && !loading;
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col gap-5">
@@ -65,15 +75,10 @@ function SummaryCard({
           className="w-11 h-11 rounded-xl flex items-center justify-center text-sm font-black text-white flex-shrink-0"
           style={{ backgroundColor: "#042C53" }}
         >
-          {CREATOR.initials}
+          {username.slice(0, 2).toUpperCase()}
         </div>
         <div className="min-w-0">
           <p className="text-sm font-bold truncate" style={{ color: "#042C53" }}>@{username}</p>
-          <div className="flex items-center gap-2 mt-0.5">
-            <span className="text-xs text-gray-500">{CREATOR.niche}</span>
-            <span className="text-xs text-gray-300">•</span>
-            <span className="text-xs text-amber-600 font-semibold">⭐ {CREATOR.rating}</span>
-          </div>
         </div>
       </div>
 
@@ -113,13 +118,19 @@ function SummaryCard({
         🔒 Ödeme, içerik onaylanana kadar Sponsorum güvencesinde tutulur.
       </div>
 
+      {submitError && (
+        <div className="rounded-xl bg-red-50 border border-red-200 px-3 py-2.5 text-xs text-red-700">
+          {submitError}
+        </div>
+      )}
+
       {/* Submit */}
       <button
         onClick={onSubmit}
-        disabled={!selected || budget <= 0 || loading}
+        disabled={!canSubmit}
         className="w-full rounded-xl py-3.5 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
         style={{ backgroundColor: "#185FA5" }}
-        onMouseEnter={e => { if (!loading && selected) e.currentTarget.style.backgroundColor = "#042C53"; }}
+        onMouseEnter={e => { if (canSubmit) e.currentTarget.style.backgroundColor = "#042C53"; }}
         onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#185FA5"; }}
       >
         {loading ? "Gönderiliyor…" : "Teklif Gönder"}
@@ -128,55 +139,8 @@ function SummaryCard({
       <p className="text-xs text-gray-400 text-center leading-relaxed">
         Teklifi göndererek{" "}
         <a href="#" className="underline">Kullanım Şartları</a>
-        'nı kabul etmiş olursunuz.
+        &apos;nı kabul etmiş olursunuz.
       </p>
-    </div>
-  );
-}
-
-// ─── Success state ────────────────────────────────────────────────────────────
-
-function SuccessView({ username }: { username: string }) {
-  return (
-    <div className="min-h-screen flex flex-col" style={{ background: "linear-gradient(135deg, #E6F1FB 0%, #ffffff 60%)" }}>
-      <header className="bg-white border-b border-gray-100 shadow-sm">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center h-16">
-          <a href="/" className="text-2xl font-extrabold tracking-tight" style={{ color: "#185FA5" }}>Sponsorum</a>
-        </div>
-      </header>
-
-      <div className="flex-1 flex items-center justify-center px-4 py-20">
-        <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-10 text-center">
-          <div
-            className="w-16 h-16 rounded-full flex items-center justify-center text-2xl text-white mx-auto mb-6"
-            style={{ backgroundColor: "#185FA5" }}
-          >
-            ✓
-          </div>
-          <h2 className="text-2xl font-extrabold mb-2" style={{ color: "#042C53" }}>Teklif Gönderildi!</h2>
-          <p className="text-gray-500 text-sm leading-relaxed mb-8">
-            Teklifiniz <span className="font-semibold text-gray-700">@{username}</span> adlı yayıncıya iletildi.
-            Yayıncı genellikle <span className="font-semibold text-gray-700">24–48 saat</span> içinde yanıt verir.
-            Bildirimlerinizi takip etmeyi unutmayın.
-          </p>
-          <div className="flex flex-col gap-3">
-            <a
-              href="/dashboard"
-              className="w-full rounded-xl py-3 text-sm font-semibold text-white text-center transition-all hover:opacity-90"
-              style={{ backgroundColor: "#185FA5" }}
-            >
-              Dashboard'a Git
-            </a>
-            <a
-              href="/search"
-              className="w-full rounded-xl py-3 text-sm font-semibold border-2 text-center transition-all hover:bg-gray-50"
-              style={{ borderColor: "#E6F1FB", color: "#185FA5" }}
-            >
-              Başka Yayıncı Ara
-            </a>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
@@ -184,34 +148,92 @@ function SuccessView({ username }: { username: string }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function OfferPage() {
-  const params = useParams();
-  const username = (params?.username as string) ?? CREATOR.username;
+  const params   = useParams();
+  const router   = useRouter();
+  const username = (params?.username as string) ?? "";
 
-  const [contentType, setContentType] = useState<ContentType | null>(null);
-  const [brief, setBrief] = useState("");
-  const [budget, setBudget] = useState("");
-  const [deadline, setDeadline] = useState("");
+  const [contentType, setContentType]       = useState<ContentType | null>(null);
+  const [brief, setBrief]                   = useState("");
+  const [budget, setBudget]                 = useState("");
+  const [deadline, setDeadline]             = useState("");
   const [specialRequests, setSpecialRequests] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
 
-  const selected = CONTENT_TYPES.find((c) => c.id === contentType) ?? null;
+  const [yayinciId, setYayinciId]   = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState("");
+  const [loading, setLoading]       = useState(false);
+  const [submitError, setSubmitError] = useState("");
+
+  const selected   = CONTENT_TYPES.find((c) => c.id === contentType) ?? null;
+  const budgetNum  = parseFloat(budget) || 0;
 
   // Auto-fill budget when content type changes
   useEffect(() => {
     if (selected) setBudget(String(selected.price));
   }, [contentType]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const budgetNum = parseFloat(budget) || 0;
+  // Look up yayinci user id from profiles.username (case-insensitive)
+  useEffect(() => {
+    if (!username) return;
+    const supabase = createClient();
+    const normalized = username.toLowerCase();
+    console.log("[offer] looking up username:", normalized);
+    supabase
+      .from("profiles")
+      .select("id, username, role")
+      .ilike("username", normalized)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        console.log("[offer] profiles lookup result:", { data, error });
+        if (error) {
+          setFetchError("Profil sorgusu başarısız: " + error.message);
+          return;
+        }
+        if (!data) {
+          setFetchError(`'${username}' kullanıcı adıyla profil bulunamadı.`);
+          return;
+        }
+        if (data.role !== "yayinci") {
+          setFetchError(`'${username}' bir yayıncı hesabı değil (rol: ${data.role}).`);
+          return;
+        }
+        console.log("[offer] yayinci_id resolved:", data.id);
+        setYayinciId(data.id);
+      });
+  }, [username]);
 
   async function handleSubmit() {
+    if (!selected || budgetNum <= 0 || !deadline || !brief.trim() || !yayinciId) return;
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 1200));
-    setLoading(false);
-    setSubmitted(true);
-  }
+    setSubmitError("");
 
-  if (submitted) return <SuccessView username={username} />;
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { router.push("/login"); return; }
+
+    const fee = parseFloat((budgetNum * PLATFORM_FEE).toFixed(2));
+
+    const { error } = await supabase.from("offers").insert({
+      marka_id:         user.id,
+      yayinci_id:       yayinciId,
+      content_type:     selected.label,
+      brief:            brief.trim(),
+      amount:           budgetNum,
+      platform_fee:     fee,
+      total:            parseFloat((budgetNum + fee).toFixed(2)),
+      deadline,
+      special_requests: specialRequests.trim() || null,
+      status:           "pending",
+    });
+
+    if (error) {
+      console.error("[offer] insert error:", error);
+      setSubmitError("Teklif gönderilirken bir hata oluştu: " + error.message);
+      setLoading(false);
+      return;
+    }
+
+    router.push("/messages");
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -236,6 +258,11 @@ export default function OfferPage() {
           <p className="text-sm text-gray-500">
             <span className="font-semibold text-gray-700">@{username}</span> adlı yayıncıya teklif gönderiyorsunuz.
           </p>
+          {fetchError && (
+            <div className="mt-3 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+              {fetchError}
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col lg:flex-row gap-7">
@@ -254,7 +281,7 @@ export default function OfferPage() {
                     key={ct.id}
                     className="flex items-center justify-between gap-4 rounded-xl border-2 p-4 cursor-pointer transition-all hover:border-[#185FA5]/40"
                     style={{
-                      borderColor: contentType === ct.id ? "#185FA5" : "#F3F4F6",
+                      borderColor:     contentType === ct.id ? "#185FA5" : "#F3F4F6",
                       backgroundColor: contentType === ct.id ? "#EBF4FF" : "white",
                     }}
                   >
@@ -288,7 +315,7 @@ export default function OfferPage() {
               <p className="text-xs text-gray-400 mb-3">Markamızı nasıl tanıtmamızı istiyorsunuz?</p>
               <textarea
                 rows={5}
-                placeholder="Ürününüzü, hedef kitlenizi ve yayıncıdan beklentilerinizi açıklayın. Örn: 'Yeni çıkan FPS oyunumuzu doğal bir şekilde tanıtmasını, en az 30 saniye ürünü göstermesini istiyoruz.'"
+                placeholder="Ürününüzü, hedef kitlenizi ve yayıncıdan beklentilerinizi açıklayın."
                 value={brief}
                 onChange={(e) => setBrief(e.target.value)}
                 className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-900 placeholder-gray-400 outline-none transition-all focus:border-[#185FA5] focus:ring-2 focus:ring-[#185FA5]/20 resize-none"
@@ -340,24 +367,26 @@ export default function OfferPage() {
               <p className="text-xs text-gray-400 mb-3">Yayıncının bilmesi gereken ek bilgiler, kısıtlamalar veya tercihler.</p>
               <textarea
                 rows={3}
-                placeholder="Örn: Rakip marka adı geçmesin, belirli bir müzik kullanılsın, video açıklamasına link eklensin…"
+                placeholder="Örn: Rakip marka adı geçmesin, belirli bir müzik kullanılsın…"
                 value={specialRequests}
                 onChange={(e) => setSpecialRequests(e.target.value)}
                 className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-900 placeholder-gray-400 outline-none transition-all focus:border-[#185FA5] focus:ring-2 focus:ring-[#185FA5]/20 resize-none"
               />
             </div>
 
-            {/* Mobile: submit button */}
+            {/* Mobile: summary card */}
             <div className="lg:hidden">
               <SummaryCard
                 username={username}
                 selected={selected}
                 budget={budgetNum}
+                deadline={deadline}
+                brief={brief}
                 onSubmit={handleSubmit}
                 loading={loading}
+                submitError={submitError}
               />
             </div>
-
           </div>
 
           {/* ── Desktop summary card ── */}
@@ -367,8 +396,11 @@ export default function OfferPage() {
                 username={username}
                 selected={selected}
                 budget={budgetNum}
+                deadline={deadline}
+                brief={brief}
                 onSubmit={handleSubmit}
                 loading={loading}
+                submitError={submitError}
               />
             </div>
           </div>
