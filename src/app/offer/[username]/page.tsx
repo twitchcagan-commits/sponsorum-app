@@ -280,10 +280,12 @@ export default function OfferPage() {
     const amount = Math.round(budgetNum);
     const fee    = Math.round(amount * PLATFORM_FEE);
 
+    const contentType = selectedTypes.map((s) => `${s.group} ${s.label}`).join(", ");
+
     const { error } = await supabase.from("offers").insert({
       marka_id:         user.id,
       yayinci_id:       yayinciId,
-      content_type:     selectedTypes.map((s) => `${s.group} ${s.label}`).join(", "),
+      content_type:     contentType,
       brief:            brief.trim(),
       amount,
       platform_fee:     fee,
@@ -299,6 +301,19 @@ export default function OfferPage() {
       setLoading(false);
       return;
     }
+
+    // Fire-and-forget email notification to yayinci
+    fetch("/api/notifications/offer-received", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        yayinciId,
+        markaId:     user.id,
+        contentType,
+        amount,
+        deadline,
+      }),
+    }).catch((err) => console.error("[offer] notification error:", err));
 
     router.push("/messages");
   }

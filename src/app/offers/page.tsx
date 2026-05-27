@@ -149,15 +149,17 @@ function OfferCard({
 export default function OffersPage() {
   const router = useRouter();
 
-  const [offers, setOffers]     = useState<Offer[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [updating, setUpdating] = useState<string | null>(null);
-  const [filter, setFilter]     = useState<OfferStatus | "all">("all");
+  const [offers, setOffers]         = useState<Offer[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [updating, setUpdating]     = useState<string | null>(null);
+  const [filter, setFilter]         = useState<OfferStatus | "all">("all");
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const loadOffers = useCallback(async () => {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push("/login"); return; }
+    setCurrentUserId(user.id);
 
     // Fetch offers
     const { data: offerRows, error } = await supabase
@@ -213,6 +215,22 @@ export default function OffersPage() {
       setOffers((prev) =>
         prev.map((o) => (o.id === id ? { ...o, status } : o))
       );
+
+      // Fire-and-forget email notification to marka
+      const offer = offers.find((o) => o.id === id);
+      if (offer && currentUserId) {
+        const endpoint = status === "accepted" ? "offer-accepted" : "offer-rejected";
+        fetch(`/api/notifications/${endpoint}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            markaId:     offer.marka_id,
+            yayinciId:   currentUserId,
+            contentType: offer.content_type,
+            deadline:    offer.deadline,
+          }),
+        }).catch((err) => console.error("[offers] notification error:", err));
+      }
     }
     setUpdating(null);
   }
