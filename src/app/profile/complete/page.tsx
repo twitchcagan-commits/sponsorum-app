@@ -377,8 +377,8 @@ export default function ProfileCompletePage() {
       return;
     }
 
-    const { data: { publicUrl } } = supabase.storage.from("proofs").getPublicUrl(data.path);
-    setProofUrls((prev) => ({ ...prev, [key]: publicUrl }));
+    // Store the storage path so viewers can generate signed URLs
+    setProofUrls((prev) => ({ ...prev, [key]: data.path }));
     setProofStepError("");
   }
 

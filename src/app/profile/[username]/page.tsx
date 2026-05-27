@@ -38,6 +38,27 @@ const PLATFORM_DISPLAY_ICONS: Record<string, string> = {
   Instagram: "📸", TikTok: "🎵", YouTube: "▶", Stream: "🎮", X: "𝕏",
 };
 
+// Maps proof keys (from proof_files jsonb) → display label + platform
+const PROOF_LABELS: Record<string, { label: string; platform: string }> = {
+  ig_stats_30d:    { label: "Hesap İstatistikleri (Son 30 Gün)",     platform: "Instagram" },
+  ig_demographics: { label: "Kitle Demografisi",                      platform: "Instagram" },
+  ig_reels_perf:   { label: "Son 5 Reels Performansı",                platform: "Instagram" },
+  tt_analytics:    { label: "TikTok Analytics (Son 28 Gün)",          platform: "TikTok"    },
+  tt_avg_views:    { label: "Video Görüntülenme Ortalaması",           platform: "TikTok"    },
+  tt_demographics: { label: "Takipçi Demografisi",                     platform: "TikTok"    },
+  yt_analytics:    { label: "YouTube Studio Analytics (Son 28 Gün)",   platform: "YouTube"   },
+  yt_demographics: { label: "İzleyici Demografisi",                    platform: "YouTube"   },
+  yt_watch_time:   { label: "Ortalama İzlenme Süresi",                 platform: "YouTube"   },
+  kick_viewers:    { label: "Ortalama Eş Zamanlı İzleyici",           platform: "Kick"      },
+  kick_stats:      { label: "Kanal İstatistikleri",                    platform: "Kick"      },
+  twitch_viewers:  { label: "Ortalama Eş Zamanlı İzleyici",           platform: "Twitch"    },
+  twitch_stats:    { label: "Kanal İstatistikleri",                    platform: "Twitch"    },
+  x_analytics:     { label: "Tweet Analitik",                          platform: "X"         },
+  x_profile_stats: { label: "Profil Ziyaret ve Gösterim",              platform: "X"         },
+};
+
+const PROOF_PLATFORM_ORDER = ["Instagram", "TikTok", "YouTube", "Kick", "Twitch", "X"];
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type SocialAccount = {
@@ -66,6 +87,7 @@ type ProfileData = {
   engagement:   number;
   avgViews:     number;
   minDelivery:  number;
+  proofFiles:   Record<string, string>;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -115,6 +137,17 @@ function deriveAvgViews(accounts: SocialAccount[]): number {
   return Math.round(views.reduce((s, v) => s + v, 0) / views.length);
 }
 
+// Stored value may be a full public URL (legacy) or a bare storage path.
+// Extract the path within the "proofs" bucket either way.
+function extractStoragePath(value: string): string {
+  const match = value.match(/\/proofs\/(.+?)(\?|$)/);
+  return match ? match[1] : value;
+}
+
+function fileType(path: string): "image" | "pdf" {
+  return path.toLowerCase().endsWith(".pdf") ? "pdf" : "image";
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function buildPrices(yp: Record<string, any>): PriceItem[] {
   return PRICE_DISPLAY.flatMap((p) => {
@@ -127,6 +160,55 @@ function buildPrices(yp: Record<string, any>): PriceItem[] {
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
+
+function ProofModal({ url, type, onClose }: { url: string; type: "image" | "pdf"; onClose: () => void }) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="relative bg-white rounded-2xl overflow-hidden shadow-2xl w-full max-w-4xl"
+        style={{ maxHeight: "90vh" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Close */}
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full text-white text-lg font-bold transition-colors"
+          style={{ backgroundColor: "rgba(0,0,0,0.45)" }}
+          onMouseEnter={e => (e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.7)")}
+          onMouseLeave={e => (e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.45)")}
+          aria-label="Kapat"
+        >
+          ×
+        </button>
+
+        {type === "image" ? (
+          <img
+            src={url}
+            alt="İstatistik kanıtı"
+            className="w-full h-auto object-contain block"
+            style={{ maxHeight: "90vh" }}
+          />
+        ) : (
+          <iframe
+            src={url}
+            title="İstatistik kanıtı PDF"
+            className="w-full border-0 block"
+            style={{ height: "85vh" }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
 
 function LoadingSkeleton() {
   return (
@@ -195,6 +277,27 @@ export default function ProfilePage() {
   const [loading,   setLoading]   = useState(true);
   const [notFound,  setNotFound]  = useState(false);
 
+  type ProofModal = { url: string; type: "image" | "pdf" };
+  const [proofModal,      setProofModal]      = useState<ProofModal | null>(null);
+  const [loadingProofKey, setLoadingProofKey] = useState<string | null>(null);
+  const [proofModalError, setProofModalError] = useState("");
+
+  async function openProof(key: string, storedValue: string) {
+    setLoadingProofKey(key);
+    setProofModalError("");
+    const supabase  = createClient();
+    const path      = extractStoragePath(storedValue);
+    const { data: signed, error } = await supabase.storage
+      .from("proofs")
+      .createSignedUrl(path, 3600);
+    setLoadingProofKey(null);
+    if (error || !signed) {
+      setProofModalError("Dosya açılamadı: " + (error?.message ?? "Bilinmeyen hata"));
+      return;
+    }
+    setProofModal({ url: signed.signedUrl, type: fileType(path) });
+  }
+
   useEffect(() => {
     if (!username) return;
     (async () => {
@@ -212,7 +315,7 @@ export default function ProfilePage() {
 
       // 2. Load yayinci_profiles
       const cols = [
-        "bio", "categories", "social_accounts", "visibility",
+        "bio", "categories", "social_accounts", "visibility", "proof_files",
         "price_ig_story", "price_ig_reels", "price_ig_post", "price_ig_highlight", "price_ig_bio_link",
         "price_tt_video", "price_tt_live", "price_tt_profile_link",
         "price_yt_video", "price_yt_end_screen", "price_yt_desc_link", "price_yt_live_banner", "price_yt_overlay",
@@ -248,6 +351,7 @@ export default function ProfilePage() {
         engagement:  deriveEngagement(accounts),
         avgViews:    deriveAvgViews(accounts),
         minDelivery,
+        proofFiles:  (yp.proof_files as Record<string, string>) ?? {},
       });
       setLoading(false);
     })();
@@ -463,6 +567,50 @@ export default function ProfilePage() {
               </div>
             )}
 
+            {/* Proof files */}
+            {Object.keys(data.proofFiles).length > 0 && (() => {
+              // Group uploaded proofs by platform in display order
+              const grouped = PROOF_PLATFORM_ORDER.reduce<{ platform: string; entries: { key: string; label: string; url: string }[] }[]>(
+                (acc, platform) => {
+                  const entries = Object.entries(data.proofFiles)
+                    .filter(([key]) => PROOF_LABELS[key]?.platform === platform)
+                    .map(([key, url]) => ({ key, label: PROOF_LABELS[key]?.label ?? key, url }));
+                  if (entries.length) acc.push({ platform, entries });
+                  return acc;
+                },
+                []
+              );
+              return (
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+                  <h2 className="text-base font-extrabold mb-4" style={{ color: "#042C53" }}>İstatistik Kanıtları</h2>
+                  <div className="flex flex-col gap-4">
+                    {grouped.map(({ platform, entries }) => (
+                      <div key={platform}>
+                        <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">
+                          {PLATFORM_ICONS[platform] ?? ""} {platform}
+                        </p>
+                        <div className="flex flex-col gap-2">
+                          {entries.map(({ key, label, url }) => (
+                            <div key={key} className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 px-3 py-2.5" style={{ backgroundColor: "#FAFAFA" }}>
+                              <span className="text-xs font-medium text-gray-700 leading-snug flex-1 min-w-0">{label}</span>
+                              <button
+                                onClick={() => openProof(key, url)}
+                                disabled={loadingProofKey !== null}
+                                className="flex-shrink-0 text-xs font-semibold rounded-lg px-3 py-1.5 transition-all hover:opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
+                                style={{ backgroundColor: "#E6F1FB", color: "#185FA5" }}
+                              >
+                                {loadingProofKey === key ? "…" : "Görüntüle"}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Stats per account */}
             {data.accounts.some((a) => Object.keys(a.stats ?? {}).length > 1) && (
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
@@ -509,6 +657,21 @@ export default function ProfilePage() {
         </div>
 
       </div>
+
+      {/* ── Proof modal ── */}
+      {proofModalError && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-xl bg-red-50 border border-red-200 px-5 py-3 text-sm text-red-700 shadow-lg">
+          {proofModalError}
+          <button className="ml-3 font-bold" onClick={() => setProofModalError("")}>×</button>
+        </div>
+      )}
+      {proofModal && (
+        <ProofModal
+          url={proofModal.url}
+          type={proofModal.type}
+          onClose={() => setProofModal(null)}
+        />
+      )}
     </div>
   );
 }
