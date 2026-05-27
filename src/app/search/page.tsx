@@ -129,6 +129,9 @@ async function fetchInfluencers(): Promise<Influencer[]> {
     .select("id, username, display_name")
     .eq("role", "yayinci");
 
+  console.log("[search] profiles data:", JSON.stringify(profileRows));
+  console.log("[search] profiles error:", profileErr);
+
   if (profileErr || !profileRows?.length) {
     console.error("[search] profiles fetch:", profileErr);
     return [];
@@ -140,11 +143,14 @@ async function fetchInfluencers(): Promise<Influencer[]> {
   const { data: ypRows, error: ypErr } = await supabase
     .from("yayinci_profiles")
     .select([
-      "id", "categories", "social_accounts", "visibility",
+      "id", "categories", "social_accounts", "platforms", "niche", "followers_count", "visibility",
       ...PRICE_COLS,
     ].join(", "))
     .in("id", ids)
     .eq("visibility", "acik");
+
+  console.log("[search] yayinci_profiles data:", JSON.stringify(ypRows));
+  console.log("[search] yayinci_profiles error:", ypErr);
 
   if (ypErr) {
     console.error("[search] yayinci_profiles fetch:", ypErr);
@@ -161,11 +167,22 @@ async function fetchInfluencers(): Promise<Influencer[]> {
     const profile = profileMap[yp.id];
     const accounts: SocialAccount[] = yp.social_accounts ?? [];
     const categories: string[]      = yp.categories ?? [];
-    const platforms                  = [...new Set(accounts.map((a) => a.platform))];
+
+    // Fall back to platforms text[] column when social_accounts is absent
+    const platforms = accounts.length > 0
+      ? [...new Set(accounts.map((a) => a.platform))]
+      : (yp.platforms ?? []);
+
+    // Fall back to niche text column when categories is absent
+    const niche = categories[0] ?? yp.niche ?? "Diğer";
+
+    // Use followers_count directly when available; derive from social_accounts otherwise
+    const followers = yp.followers_count !== null && yp.followers_count !== undefined
+      ? yp.followers_count
+      : deriveFollowers(accounts);
 
     const username    = profile?.username ?? profile?.display_name?.toLowerCase().replace(/\s+/g, "") ?? yp.id.slice(0, 8);
     const displayName = profile?.display_name ?? username;
-    const niche       = categories[0] ?? "Diğer";
 
     return {
       id:            yp.id,
@@ -173,7 +190,7 @@ async function fetchInfluencers(): Promise<Influencer[]> {
       displayName,
       niche,
       platforms,
-      followers:     deriveFollowers(accounts),
+      followers,
       engagement:    deriveEngagement(accounts),
       startingPrice: deriveStartingPrice(yp),
     };

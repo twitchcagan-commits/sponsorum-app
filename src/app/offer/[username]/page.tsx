@@ -17,15 +17,42 @@ import { createClient } from "@/lib/supabase";
 
 // ─── Types & config ───────────────────────────────────────────────────────────
 
-type ContentType = "reels" | "story" | "tiktok" | "paket";
+type ContentTypeDef = {
+  col:   string;
+  label: string;
+  group: string;
+  icon:  string;
+  days:  number;
+};
 
-const CONTENT_TYPES: { id: ContentType; label: string; platform: string; price: number; days: number }[] = [
-  { id: "reels",  label: "Instagram Reels (60 sn)",       platform: "Instagram", price: 3500, days: 3 },
-  { id: "story",  label: "Instagram Story",                platform: "Instagram", price: 1200, days: 1 },
-  { id: "tiktok", label: "TikTok Video",                   platform: "TikTok",    price: 2800, days: 3 },
-  { id: "paket",  label: "Paket (Reels + Story + TikTok)", platform: "Multi",     price: 6000, days: 5 },
+type LoadedContentType = ContentTypeDef & { price: number };
+
+// Master list — matches every price column in yayinci_profiles
+const ALL_CONTENT_TYPES: ContentTypeDef[] = [
+  { col: "price_ig_story",          label: "Story",              group: "Instagram",     icon: "📸", days: 1 },
+  { col: "price_ig_reels",          label: "Reels",              group: "Instagram",     icon: "📸", days: 3 },
+  { col: "price_ig_post",           label: "Post",               group: "Instagram",     icon: "📸", days: 3 },
+  { col: "price_ig_highlight",      label: "Highlight",          group: "Instagram",     icon: "📸", days: 7 },
+  { col: "price_ig_bio_link",       label: "Bio Link",           group: "Instagram",     icon: "📸", days: 7 },
+  { col: "price_tt_video",          label: "Video",              group: "TikTok",        icon: "🎵", days: 3 },
+  { col: "price_tt_live",           label: "Canlı Yayın",        group: "TikTok",        icon: "🎵", days: 1 },
+  { col: "price_tt_profile_link",   label: "Profil Linki",       group: "TikTok",        icon: "🎵", days: 7 },
+  { col: "price_yt_video",          label: "Video Entegre",      group: "YouTube",       icon: "▶",  days: 7 },
+  { col: "price_yt_end_screen",     label: "End Screen",         group: "YouTube",       icon: "▶",  days: 7 },
+  { col: "price_yt_desc_link",      label: "Açıklama Linki",     group: "YouTube",       icon: "▶",  days: 7 },
+  { col: "price_yt_live_banner",    label: "Canlı Yayın Banner", group: "YouTube",       icon: "▶",  days: 1 },
+  { col: "price_yt_overlay",        label: "Overlay Logo",       group: "YouTube",       icon: "▶",  days: 1 },
+  { col: "price_stream_mention",    label: "Sözlü Bahis",        group: "Kick / Twitch", icon: "🎮", days: 1 },
+  { col: "price_stream_overlay",    label: "Ekran Overlay",      group: "Kick / Twitch", icon: "🎮", days: 1 },
+  { col: "price_stream_panel",      label: "Panel Banner",       group: "Kick / Twitch", icon: "🎮", days: 7 },
+  { col: "price_stream_integrated", label: "Canlı Yayın Entegre",group: "Kick / Twitch", icon: "🎮", days: 1 },
+  { col: "price_tweet",             label: "Tweet",              group: "X",             icon: "𝕏",  days: 1 },
+  { col: "price_x_pinned",          label: "Sabitlenmiş Tweet",  group: "X",             icon: "𝕏",  days: 7 },
+  { col: "price_x_thread",          label: "Thread",             group: "X",             icon: "𝕏",  days: 3 },
+  { col: "price_x_bio",             label: "Profil Bio",         group: "X",             icon: "𝕏",  days: 7 },
 ];
 
+const PRICE_COLS = ALL_CONTENT_TYPES.map((ct) => ct.col);
 const PLATFORM_FEE = 0.15;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -35,9 +62,10 @@ function fmt(n: number) {
 }
 
 function minDate() {
-  const d = new Date();
-  d.setDate(d.getDate() + 3);
-  return d.toISOString().split("T")[0];
+  const d  = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
 // ─── Summary card ─────────────────────────────────────────────────────────────
@@ -52,18 +80,18 @@ function SummaryCard({
   loading,
   submitError,
 }: {
-  username: string;
-  selected: (typeof CONTENT_TYPES)[0] | null;
-  budget: number;
-  deadline: string;
-  brief: string;
-  onSubmit: () => void;
-  loading: boolean;
+  username:    string;
+  selected:    LoadedContentType[];
+  budget:      number;
+  deadline:    string;
+  brief:       string;
+  onSubmit:    () => void;
+  loading:     boolean;
   submitError: string;
 }) {
-  const fee = budget * PLATFORM_FEE;
+  const fee   = budget * PLATFORM_FEE;
   const total = budget + fee;
-  const canSubmit = !!selected && budget > 0 && !!deadline && !!brief.trim() && !loading;
+  const canSubmit = selected.length > 0 && budget > 0 && !!deadline && !!brief.trim() && !loading;
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col gap-5">
@@ -85,9 +113,17 @@ function SummaryCard({
       {/* Line items */}
       <div className="flex flex-col gap-3 text-sm">
         <div className="flex justify-between items-start gap-2">
-          <span className="text-gray-500">İçerik türü</span>
+          <span className="text-gray-500 flex-shrink-0">İçerik türü</span>
           <span className="font-semibold text-right" style={{ color: "#042C53" }}>
-            {selected ? selected.label : <span className="text-gray-300 font-normal">Seçilmedi</span>}
+            {selected.length > 0 ? (
+              <span className="flex flex-col items-end gap-0.5">
+                {selected.map((s) => (
+                  <span key={s.col}>{s.icon} {s.group} {s.label}</span>
+                ))}
+              </span>
+            ) : (
+              <span className="text-gray-300 font-normal">Seçilmedi</span>
+            )}
           </span>
         </div>
 
@@ -124,7 +160,6 @@ function SummaryCard({
         </div>
       )}
 
-      {/* Submit */}
       <button
         onClick={onSubmit}
         disabled={!canSubmit}
@@ -152,57 +187,89 @@ export default function OfferPage() {
   const router   = useRouter();
   const username = (params?.username as string) ?? "";
 
-  const [contentType, setContentType]       = useState<ContentType | null>(null);
+  const [yayinciId, setYayinciId]         = useState<string | null>(null);
+  // null = still loading, [] = loaded but no prices set
+  const [availableTypes, setAvailableTypes] = useState<LoadedContentType[] | null>(null);
+  const [selectedCols, setSelectedCols]   = useState<Set<string>>(new Set());
+
   const [brief, setBrief]                   = useState("");
   const [budget, setBudget]                 = useState("");
   const [deadline, setDeadline]             = useState("");
   const [specialRequests, setSpecialRequests] = useState("");
 
-  const [yayinciId, setYayinciId]   = useState<string | null>(null);
-  const [fetchError, setFetchError] = useState("");
-  const [loading, setLoading]       = useState(false);
+  const [fetchError, setFetchError]   = useState("");
+  const [loading, setLoading]         = useState(false);
   const [submitError, setSubmitError] = useState("");
 
-  const selected   = CONTENT_TYPES.find((c) => c.id === contentType) ?? null;
-  const budgetNum  = parseFloat(budget) || 0;
+  const selectedTypes = (availableTypes ?? []).filter((ct) => selectedCols.has(ct.col));
+  const budgetNum     = parseFloat(budget) || 0;
 
-  // Auto-fill budget when content type changes
+  function toggleCol(col: string) {
+    setSelectedCols((prev) => {
+      const next = new Set(prev);
+      next.has(col) ? next.delete(col) : next.add(col);
+      return next;
+    });
+  }
+
+  // Auto-fill budget as sum of selected prices
   useEffect(() => {
-    if (selected) setBudget(String(selected.price));
-  }, [contentType]); // eslint-disable-line react-hooks/exhaustive-deps
+    const sum = selectedTypes.reduce((acc, ct) => acc + ct.price, 0);
+    setBudget(sum > 0 ? String(sum) : "");
+  }, [selectedCols]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Look up yayinci user id from profiles.username (case-insensitive)
+  // Step 1: resolve username → yayinciId
   useEffect(() => {
     if (!username) return;
     const supabase = createClient();
-    const normalized = username.toLowerCase();
-    console.log("[offer] looking up username:", normalized);
     supabase
       .from("profiles")
       .select("id, username, role")
-      .ilike("username", normalized)
+      .ilike("username", username.toLowerCase())
       .maybeSingle()
       .then(({ data, error }) => {
-        console.log("[offer] profiles lookup result:", { data, error });
-        if (error) {
-          setFetchError("Profil sorgusu başarısız: " + error.message);
-          return;
-        }
-        if (!data) {
-          setFetchError(`'${username}' kullanıcı adıyla profil bulunamadı.`);
-          return;
-        }
-        if (data.role !== "yayinci") {
-          setFetchError(`'${username}' bir yayıncı hesabı değil (rol: ${data.role}).`);
-          return;
-        }
-        console.log("[offer] yayinci_id resolved:", data.id);
+        if (error) { setFetchError("Profil sorgusu başarısız: " + error.message); return; }
+        if (!data)  { setFetchError(`'${username}' kullanıcı adıyla profil bulunamadı.`); return; }
+        if (data.role !== "yayinci") { setFetchError(`'${username}' bir yayıncı hesabı değil.`); return; }
         setYayinciId(data.id);
       });
   }, [username]);
 
+  // Step 2: load prices from yayinci_profiles
+  useEffect(() => {
+    if (!yayinciId) return;
+    const supabase = createClient();
+    supabase
+      .from("yayinci_profiles")
+      .select(PRICE_COLS.join(", "))
+      .eq("id", yayinciId)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (error) { setFetchError("Fiyat bilgisi alınamadı: " + error.message); return; }
+        if (!data)  { setAvailableTypes([]); return; }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const row = data as Record<string, any>;
+        const types: LoadedContentType[] = ALL_CONTENT_TYPES.flatMap((def) => {
+          const v = row[def.col];
+          if (v === null || v === undefined) return [];
+          const price = Number(v);
+          if (isNaN(price) || price <= 0) return [];
+          return [{ ...def, price }];
+        });
+        setAvailableTypes(types);
+      });
+  }, [yayinciId]);
+
   async function handleSubmit() {
-    if (!selected || budgetNum <= 0 || !deadline || !brief.trim() || !yayinciId) return;
+    if (selectedTypes.length === 0 || budgetNum <= 0 || !deadline || !brief.trim() || !yayinciId) return;
+
+    // Reject past dates
+    if (deadline < minDate()) {
+      setSubmitError("Teslim tarihi geçmiş bir tarih olamaz. Lütfen bugün veya daha sonraki bir tarih seçin.");
+      return;
+    }
+
     setLoading(true);
     setSubmitError("");
 
@@ -210,16 +277,17 @@ export default function OfferPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push("/login"); return; }
 
-    const fee = parseFloat((budgetNum * PLATFORM_FEE).toFixed(2));
+    const amount = Math.round(budgetNum);
+    const fee    = Math.round(amount * PLATFORM_FEE);
 
     const { error } = await supabase.from("offers").insert({
       marka_id:         user.id,
       yayinci_id:       yayinciId,
-      content_type:     selected.label,
+      content_type:     selectedTypes.map((s) => `${s.group} ${s.label}`).join(", "),
       brief:            brief.trim(),
-      amount:           budgetNum,
+      amount,
       platform_fee:     fee,
-      total:            parseFloat((budgetNum + fee).toFixed(2)),
+      total:            amount + fee,
       deadline,
       special_requests: specialRequests.trim() || null,
       status:           "pending",
@@ -234,6 +302,17 @@ export default function OfferPage() {
 
     router.push("/messages");
   }
+
+  // Group loaded types by platform for the UI
+  const groups = (availableTypes ?? []).reduce<{ group: string; types: LoadedContentType[] }[]>(
+    (acc, ct) => {
+      const existing = acc.find((g) => g.group === ct.group);
+      if (existing) existing.types.push(ct);
+      else acc.push({ group: ct.group, types: [ct] });
+      return acc;
+    },
+    []
+  );
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -270,41 +349,69 @@ export default function OfferPage() {
           {/* ── Form ── */}
           <div className="flex-1 flex flex-col gap-5 min-w-0">
 
-            {/* Content type */}
+            {/* Content type selection */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
               <h2 className="text-sm font-extrabold mb-4" style={{ color: "#042C53" }}>
-                İçerik Türü <span className="text-red-400">*</span>
+                İçerik Türleri <span className="text-red-400">*</span>
               </h2>
-              <div className="flex flex-col gap-3">
-                {CONTENT_TYPES.map((ct) => (
-                  <label
-                    key={ct.id}
-                    className="flex items-center justify-between gap-4 rounded-xl border-2 p-4 cursor-pointer transition-all hover:border-[#185FA5]/40"
-                    style={{
-                      borderColor:     contentType === ct.id ? "#185FA5" : "#F3F4F6",
-                      backgroundColor: contentType === ct.id ? "#EBF4FF" : "white",
-                    }}
-                  >
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="radio"
-                        name="contentType"
-                        value={ct.id}
-                        checked={contentType === ct.id}
-                        onChange={() => setContentType(ct.id)}
-                        className="w-4 h-4 accent-[#185FA5]"
-                      />
-                      <div>
-                        <p className="text-sm font-semibold text-gray-800">{ct.label}</p>
-                        <p className="text-xs text-gray-400">{ct.platform} · {ct.days} günde teslim</p>
+
+              {/* Loading skeleton */}
+              {availableTypes === null && !fetchError && (
+                <div className="flex flex-col gap-3">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-16 rounded-xl bg-gray-100 animate-pulse" />
+                  ))}
+                </div>
+              )}
+
+              {/* No prices set */}
+              {availableTypes?.length === 0 && (
+                <p className="text-sm text-gray-400">Bu yayıncı henüz fiyat listesi oluşturmamış.</p>
+              )}
+
+              {/* Grouped checkboxes */}
+              {groups.length > 0 && (
+                <div className="flex flex-col gap-6">
+                  {groups.map(({ group, types }) => (
+                    <div key={group}>
+                      <p className="text-xs font-bold uppercase tracking-widest mb-2 text-gray-400">
+                        {types[0].icon} {group}
+                      </p>
+                      <div className="flex flex-col gap-2">
+                        {types.map((ct) => {
+                          const isChecked = selectedCols.has(ct.col);
+                          return (
+                            <label
+                              key={ct.col}
+                              className="flex items-center justify-between gap-4 rounded-xl border-2 p-4 cursor-pointer transition-all hover:border-[#185FA5]/40"
+                              style={{
+                                borderColor:     isChecked ? "#185FA5" : "#F3F4F6",
+                                backgroundColor: isChecked ? "#EBF4FF" : "white",
+                              }}
+                            >
+                              <div className="flex items-center gap-3">
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => toggleCol(ct.col)}
+                                  className="w-4 h-4 accent-[#185FA5]"
+                                />
+                                <div>
+                                  <p className="text-sm font-semibold text-gray-800">{ct.label}</p>
+                                  <p className="text-xs text-gray-400">{ct.days} günde teslim</p>
+                                </div>
+                              </div>
+                              <span className="text-sm font-extrabold flex-shrink-0" style={{ color: "#185FA5" }}>
+                                {fmt(ct.price)}
+                              </span>
+                            </label>
+                          );
+                        })}
                       </div>
                     </div>
-                    <span className="text-sm font-extrabold flex-shrink-0" style={{ color: "#185FA5" }}>
-                      ₺{ct.price.toLocaleString("tr-TR")}
-                    </span>
-                  </label>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Campaign brief */}
@@ -328,26 +435,21 @@ export default function OfferPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                 <div>
                   <label className="block text-sm font-extrabold mb-1" style={{ color: "#042C53" }}>
-                    Bütçe (₺) <span className="text-red-400">*</span>
+                    Bütçe (₺)
                   </label>
-                  <p className="text-xs text-gray-400 mb-2">İçerik türüne göre otomatik doldurulur, değiştirilebilir.</p>
-                  <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-gray-400">₺</span>
-                    <input
-                      type="number"
-                      min={1}
-                      value={budget}
-                      onChange={(e) => setBudget(e.target.value)}
-                      placeholder="0"
-                      className="w-full rounded-xl border border-gray-200 pl-8 pr-4 py-3 text-sm text-gray-900 outline-none transition-all focus:border-[#185FA5] focus:ring-2 focus:ring-[#185FA5]/20"
-                    />
+                  <p className="text-xs text-gray-400 mb-2">Seçilen içerik türlerinin toplam fiyatı.</p>
+                  <div
+                    className="w-full rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm font-bold"
+                    style={{ color: budgetNum > 0 ? "#042C53" : "#9ca3af" }}
+                  >
+                    {budgetNum > 0 ? fmt(budgetNum) : "—"}
                   </div>
                 </div>
                 <div>
                   <label className="block text-sm font-extrabold mb-1" style={{ color: "#042C53" }}>
                     Teslim Tarihi <span className="text-red-400">*</span>
                   </label>
-                  <p className="text-xs text-gray-400 mb-2">En erken 3 gün sonrası seçilebilir.</p>
+                  <p className="text-xs text-gray-400 mb-2">Bugün veya daha sonraki bir tarih seçilebilir.</p>
                   <input
                     type="date"
                     min={minDate()}
@@ -378,7 +480,7 @@ export default function OfferPage() {
             <div className="lg:hidden">
               <SummaryCard
                 username={username}
-                selected={selected}
+                selected={selectedTypes}
                 budget={budgetNum}
                 deadline={deadline}
                 brief={brief}
@@ -394,7 +496,7 @@ export default function OfferPage() {
             <div className="sticky top-24">
               <SummaryCard
                 username={username}
-                selected={selected}
+                selected={selectedTypes}
                 budget={budgetNum}
                 deadline={deadline}
                 brief={brief}
