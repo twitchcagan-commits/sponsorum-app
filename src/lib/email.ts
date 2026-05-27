@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 
+console.log("[email] RESEND_API_KEY exists:", !!process.env.RESEND_API_KEY);
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 function layout(body: string): string {
@@ -41,6 +42,8 @@ p{color:#4B5563;font-size:14px;line-height:1.7;margin-bottom:12px}
 </html>`;
 }
 
+const TEST_RECIPIENT = "twitchcagan@gmail.com";
+
 export async function sendEmail({
   to,
   subject,
@@ -50,9 +53,13 @@ export async function sendEmail({
   subject: string;
   html: string;
 }) {
+  // Resend free tier only allows sending to verified address — redirect all for testing
+  const recipient = TEST_RECIPIENT;
+  console.log(`[email] redirecting to=${to} → ${recipient} | subject: ${subject}`);
+
   const { error } = await resend.emails.send({
     from: "Sponsorum <onboarding@resend.dev>",
-    to,
+    to: recipient,
     subject,
     html: layout(html),
   });

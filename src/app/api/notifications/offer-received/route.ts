@@ -22,7 +22,10 @@ function fmtDate(iso: string) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { yayinciId, markaId, contentType, amount, deadline } = await req.json();
+    const body = await req.json();
+    console.log("[offer-received] called with body:", body);
+
+    const { yayinciId, markaId, contentType, amount, deadline } = body;
 
     if (!yayinciId || !markaId || !contentType || !amount || !deadline) {
       return NextResponse.json({ error: "Eksik parametre" }, { status: 400 });
