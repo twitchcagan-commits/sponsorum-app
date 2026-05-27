@@ -4,15 +4,40 @@
   Run in Supabase SQL Editor before using this page:
 
   alter table yayinci_profiles
-    add column if not exists social_accounts jsonb  default '[]',
-    add column if not exists categories      text[] default '{}',
-    add column if not exists visibility      text   default 'acik',
-    add column if not exists price_story     numeric,
-    add column if not exists price_reels     numeric,
-    add column if not exists price_tiktok    numeric,
-    add column if not exists price_youtube   numeric,
-    add column if not exists price_stream    numeric,
-    add column if not exists price_tweet     numeric;
+    add column if not exists social_accounts      jsonb  default '[]',
+    add column if not exists categories           text[] default '{}',
+    add column if not exists visibility           text   default 'acik',
+    -- Instagram
+    add column if not exists price_ig_story          numeric,
+    add column if not exists price_ig_reels          numeric,
+    add column if not exists price_ig_post           numeric,
+    add column if not exists price_ig_highlight      numeric,
+    add column if not exists price_ig_bio_link       numeric,
+    -- TikTok
+    add column if not exists price_tt_video          numeric,
+    add column if not exists price_tt_live           numeric,
+    add column if not exists price_tt_profile_link   numeric,
+    -- YouTube
+    add column if not exists price_yt_video          numeric,
+    add column if not exists price_yt_end_screen     numeric,
+    add column if not exists price_yt_desc_link      numeric,
+    add column if not exists price_yt_live_banner    numeric,
+    add column if not exists price_yt_overlay        numeric,
+    -- Kick / Twitch
+    add column if not exists price_stream_mention    numeric,
+    add column if not exists price_stream_overlay    numeric,
+    add column if not exists price_stream_panel      numeric,
+    add column if not exists price_stream_integrated numeric,
+    -- X
+    add column if not exists price_tweet             numeric,
+    add column if not exists price_x_pinned          numeric,
+    add column if not exists price_x_thread          numeric,
+    add column if not exists price_x_bio             numeric;
+
+  RLS policies needed on yayinci_profiles:
+    INSERT: WITH CHECK (auth.uid() = id)
+    UPDATE: USING (auth.uid() = id)
+    SELECT: USING (auth.uid() = id)
 */
 
 import { useState } from "react";
@@ -47,16 +72,16 @@ const PLATFORM_STAT_FIELDS: Record<string, StatField[]> = {
     { key: "avg_video_views", label: "Ort. Video İzlenme", placeholder: "80000" },
   ],
   YouTube: [
-    { key: "subscribers", label: "Abone Sayısı",       placeholder: "100000" },
-    { key: "avg_views",   label: "Ort. Video İzlenme",  placeholder: "30000"  },
+    { key: "subscribers", label: "Abone Sayısı",      placeholder: "100000" },
+    { key: "avg_views",   label: "Ort. Video İzlenme", placeholder: "30000"  },
   ],
   Kick: [
-    { key: "followers",   label: "Takipçi Sayısı",              placeholder: "10000" },
+    { key: "followers",   label: "Takipçi Sayısı",             placeholder: "10000" },
     { key: "avg_viewers", label: "Ort. Eş Zamanlı İzleyici",   placeholder: "500"   },
   ],
   Twitch: [
     { key: "followers",   label: "Takipçi Sayısı",             placeholder: "15000" },
-    { key: "avg_viewers", label: "Ort. Eş Zamanlı İzleyici",  placeholder: "300"   },
+    { key: "avg_viewers", label: "Ort. Eş Zamanlı İzleyici",   placeholder: "300"   },
   ],
   X: [
     { key: "followers",       label: "Takipçi Sayısı",      placeholder: "25000" },
@@ -64,16 +89,36 @@ const PLATFORM_STAT_FIELDS: Record<string, StatField[]> = {
   ],
 };
 
-// col → which platforms trigger this price row
-// "stream" is triggered by Kick OR Twitch (deduped)
 const PRICE_ROWS = [
-  { col: "price_story",   label: "Instagram Story",            platforms: ["Instagram"], icon: "📸", defaultDays: 1 },
-  { col: "price_reels",   label: "Instagram Reels (60 sn)",    platforms: ["Instagram"], icon: "📸", defaultDays: 3 },
-  { col: "price_tiktok",  label: "TikTok Video",               platforms: ["TikTok"],    icon: "🎵", defaultDays: 3 },
-  { col: "price_youtube", label: "YouTube Entegrasyon",         platforms: ["YouTube"],   icon: "▶",  defaultDays: 7 },
-  { col: "price_stream",  label: "Stream Mention",              platforms: ["Kick", "Twitch"], icon: "🎮", defaultDays: 1 },
-  { col: "price_tweet",   label: "Tweet / X Paylaşımı",         platforms: ["X"],          icon: "𝕏",  defaultDays: 1 },
+  // Instagram
+  { col: "price_ig_story",          label: "Story",                            group: "Instagram",    platforms: ["Instagram"],       icon: "📸", defaultDays: 1 },
+  { col: "price_ig_reels",          label: "Reels",                            group: "Instagram",    platforms: ["Instagram"],       icon: "📸", defaultDays: 3 },
+  { col: "price_ig_post",           label: "Post",                             group: "Instagram",    platforms: ["Instagram"],       icon: "📸", defaultDays: 3 },
+  { col: "price_ig_highlight",      label: "Highlight",                        group: "Instagram",    platforms: ["Instagram"],       icon: "📸", defaultDays: 7 },
+  { col: "price_ig_bio_link",       label: "Bio Link",                         group: "Instagram",    platforms: ["Instagram"],       icon: "📸", defaultDays: 7 },
+  // TikTok
+  { col: "price_tt_video",          label: "Video",                            group: "TikTok",       platforms: ["TikTok"],          icon: "🎵", defaultDays: 3 },
+  { col: "price_tt_live",           label: "Canlı Yayın",                      group: "TikTok",       platforms: ["TikTok"],          icon: "🎵", defaultDays: 1 },
+  { col: "price_tt_profile_link",   label: "Profil Linki",                     group: "TikTok",       platforms: ["TikTok"],          icon: "🎵", defaultDays: 7 },
+  // YouTube
+  { col: "price_yt_video",          label: "Video Entegre (Başı / Ortası / Sonu)", group: "YouTube", platforms: ["YouTube"],          icon: "▶",  defaultDays: 7 },
+  { col: "price_yt_end_screen",     label: "End Screen",                       group: "YouTube",      platforms: ["YouTube"],          icon: "▶",  defaultDays: 7 },
+  { col: "price_yt_desc_link",      label: "Açıklama Linki",                   group: "YouTube",      platforms: ["YouTube"],          icon: "▶",  defaultDays: 7 },
+  { col: "price_yt_live_banner",    label: "Canlı Yayın Banner",               group: "YouTube",      platforms: ["YouTube"],          icon: "▶",  defaultDays: 1 },
+  { col: "price_yt_overlay",        label: "Overlay Logo",                     group: "YouTube",      platforms: ["YouTube"],          icon: "▶",  defaultDays: 1 },
+  // Kick / Twitch
+  { col: "price_stream_mention",    label: "Canlı Yayın Sözlü Bahis",          group: "Kick / Twitch", platforms: ["Kick", "Twitch"], icon: "🎮", defaultDays: 1 },
+  { col: "price_stream_overlay",    label: "Ekran Overlay Logo",               group: "Kick / Twitch", platforms: ["Kick", "Twitch"], icon: "🎮", defaultDays: 1 },
+  { col: "price_stream_panel",      label: "Panel Banner",                     group: "Kick / Twitch", platforms: ["Kick", "Twitch"], icon: "🎮", defaultDays: 7 },
+  { col: "price_stream_integrated", label: "Canlı Yayın Entegre",              group: "Kick / Twitch", platforms: ["Kick", "Twitch"], icon: "🎮", defaultDays: 1 },
+  // X (Twitter)
+  { col: "price_tweet",             label: "Tweet",                            group: "X",            platforms: ["X"],               icon: "𝕏",  defaultDays: 1 },
+  { col: "price_x_pinned",          label: "Sabitlenmiş Tweet",                group: "X",            platforms: ["X"],               icon: "𝕏",  defaultDays: 7 },
+  { col: "price_x_thread",          label: "Thread",                           group: "X",            platforms: ["X"],               icon: "𝕏",  defaultDays: 3 },
+  { col: "price_x_bio",             label: "Profil Bio",                       group: "X",            platforms: ["X"],               icon: "𝕏",  defaultDays: 7 },
 ];
+
+const GROUP_ORDER = [...new Set(PRICE_ROWS.map((r) => r.group))];
 
 const CATEGORIES = [
   { label: "Oyun",       emoji: "🎮" },
@@ -183,6 +228,13 @@ export default function ProfileCompletePage() {
     row.platforms.some((p) => addedPlatforms.has(p))
   );
 
+  const groupedVisibleRows = GROUP_ORDER.reduce((acc, g) => {
+    const rows = visiblePriceRows.filter((r) => r.group === g);
+    if (rows.length) acc[g] = rows;
+    return acc;
+  }, {} as Record<string, typeof PRICE_ROWS>);
+  const visibleGroups = GROUP_ORDER.filter((g) => groupedVisibleRows[g]);
+
   // ── Step 1 handlers ──
 
   function handlePlatformChange(p: string) {
@@ -263,13 +315,33 @@ export default function ProfileCompletePage() {
       social_accounts: socialAccounts,
       categories,
       visibility,
-      price_story:     toNum("price_story"),
-      price_reels:     toNum("price_reels"),
-      price_tiktok:    toNum("price_tiktok"),
-      price_youtube:   toNum("price_youtube"),
-      price_stream:    toNum("price_stream"),
-      price_tweet:     toNum("price_tweet"),
-    });
+      // Instagram
+      price_ig_story:          toNum("price_ig_story"),
+      price_ig_reels:          toNum("price_ig_reels"),
+      price_ig_post:           toNum("price_ig_post"),
+      price_ig_highlight:      toNum("price_ig_highlight"),
+      price_ig_bio_link:       toNum("price_ig_bio_link"),
+      // TikTok
+      price_tt_video:          toNum("price_tt_video"),
+      price_tt_live:           toNum("price_tt_live"),
+      price_tt_profile_link:   toNum("price_tt_profile_link"),
+      // YouTube
+      price_yt_video:          toNum("price_yt_video"),
+      price_yt_end_screen:     toNum("price_yt_end_screen"),
+      price_yt_desc_link:      toNum("price_yt_desc_link"),
+      price_yt_live_banner:    toNum("price_yt_live_banner"),
+      price_yt_overlay:        toNum("price_yt_overlay"),
+      // Kick / Twitch
+      price_stream_mention:    toNum("price_stream_mention"),
+      price_stream_overlay:    toNum("price_stream_overlay"),
+      price_stream_panel:      toNum("price_stream_panel"),
+      price_stream_integrated: toNum("price_stream_integrated"),
+      // X
+      price_tweet:             toNum("price_tweet"),
+      price_x_pinned:          toNum("price_x_pinned"),
+      price_x_thread:          toNum("price_x_thread"),
+      price_x_bio:             toNum("price_x_bio"),
+    }, { onConflict: "id" });
 
     if (error) {
       console.error("[profile/complete] upsert error:", error);
@@ -448,44 +520,53 @@ export default function ProfileCompletePage() {
                   Adım 1&apos;de sosyal medya hesabı eklemen gerekiyor.
                 </div>
               ) : (
-                <div className="flex flex-col gap-4">
-                  {visiblePriceRows.map((row) => (
-                    <div key={row.col} className="rounded-xl border border-gray-100 p-5" style={{ backgroundColor: "#FAFAFA" }}>
-                      <div className="flex items-center gap-2 mb-4">
-                        <span className="text-base">{row.icon}</span>
-                        <span className="text-sm font-bold" style={{ color: "#042C53" }}>{row.label}</span>
-                        {row.platforms.length > 1 && (
-                          <span className="text-xs text-gray-400 ml-1">({row.platforms.filter(p => addedPlatforms.has(p)).join(" & ")})</span>
-                        )}
+                <div className="flex flex-col gap-6">
+                  {visibleGroups.map((group) => (
+                    <div key={group}>
+                      <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-100">
+                        <span className="text-base">{groupedVisibleRows[group][0].icon}</span>
+                        <span className="text-xs font-bold uppercase tracking-widest" style={{ color: "#185FA5" }}>{group}</span>
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-500 mb-1.5">Fiyat (₺)</label>
-                          <div className="relative">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-medium">₺</span>
-                            <input
-                              type="number"
-                              min={MIN_PRICE}
-                              placeholder={String(MIN_PRICE)}
-                              value={prices[row.col].price}
-                              onChange={(e) => setPrice(row.col, "price", e.target.value)}
-                              className={inputCls + " pl-7"}
-                            />
+                      <div className="flex flex-col gap-3">
+                        {groupedVisibleRows[group].map((row) => (
+                          <div key={row.col} className="rounded-xl border border-gray-100 p-5" style={{ backgroundColor: "#FAFAFA" }}>
+                            <div className="flex items-center gap-2 mb-4">
+                              <span className="text-sm font-bold" style={{ color: "#042C53" }}>{row.label}</span>
+                              {row.platforms.length > 1 && (
+                                <span className="text-xs text-gray-400 ml-1">({row.platforms.filter((p) => addedPlatforms.has(p)).join(" & ")})</span>
+                              )}
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-xs font-semibold text-gray-500 mb-1.5">Fiyat (₺)</label>
+                                <div className="relative">
+                                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-medium">₺</span>
+                                  <input
+                                    type="number"
+                                    min={MIN_PRICE}
+                                    placeholder={String(MIN_PRICE)}
+                                    value={prices[row.col].price}
+                                    onChange={(e) => setPrice(row.col, "price", e.target.value)}
+                                    className={inputCls + " pl-7"}
+                                  />
+                                </div>
+                                {priceErrors[row.col] && <p className="text-xs text-red-600 mt-1">{priceErrors[row.col]}</p>}
+                              </div>
+                              <div>
+                                <label className="block text-xs font-semibold text-gray-500 mb-1.5">Teslimat</label>
+                                <select
+                                  value={prices[row.col].days}
+                                  onChange={(e) => setPrice(row.col, "days", parseInt(e.target.value))}
+                                  className={inputCls}
+                                >
+                                  {DELIVERY_OPTIONS.map((d) => (
+                                    <option key={d} value={d}>{d} gün</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
                           </div>
-                          {priceErrors[row.col] && <p className="text-xs text-red-600 mt-1">{priceErrors[row.col]}</p>}
-                        </div>
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-500 mb-1.5">Teslimat</label>
-                          <select
-                            value={prices[row.col].days}
-                            onChange={(e) => setPrice(row.col, "days", parseInt(e.target.value))}
-                            className={inputCls}
-                          >
-                            {DELIVERY_OPTIONS.map((d) => (
-                              <option key={d} value={d}>{d} gün</option>
-                            ))}
-                          </select>
-                        </div>
+                        ))}
                       </div>
                     </div>
                   ))}
