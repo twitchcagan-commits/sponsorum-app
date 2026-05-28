@@ -1,36 +1,50 @@
 "use client";
 
 /*
-  Requires a messages table in Supabase:
+  SQL additions required:
 
-  CREATE TABLE messages (
+  -- Add file columns to messages table:
+  ALTER TABLE messages ADD COLUMN IF NOT EXISTS file_url  text;
+  ALTER TABLE messages ADD COLUMN IF NOT EXISTS file_type text;  -- 'image' | 'video'
+
+  -- Create message-files storage bucket (public):
+  INSERT INTO storage.buckets (id, name, public)
+  VALUES ('message-files', 'message-files', true)
+  ON CONFLICT (id) DO NOTHING;
+
+  CREATE POLICY "authenticated upload message files"
+    ON storage.objects FOR INSERT TO authenticated
+    WITH CHECK (bucket_id = 'message-files');
+
+  CREATE POLICY "public read message files"
+    ON storage.objects FOR SELECT
+    USING (bucket_id = 'message-files');
+
+  -- messages table (if not yet created):
+  CREATE TABLE IF NOT EXISTS messages (
     id         uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     offer_id   uuid REFERENCES offers(id) ON DELETE CASCADE,
     sender_id  uuid REFERENCES auth.users(id),
-    content    text NOT NULL,
+    content    text NOT NULL DEFAULT '',
+    file_url   text,
+    file_type  text,
     created_at timestamptz DEFAULT now()
   );
-
   ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
-
   CREATE POLICY "read own offer messages" ON messages FOR SELECT
     USING (EXISTS (
       SELECT 1 FROM offers
       WHERE offers.id = messages.offer_id
         AND (offers.marka_id = auth.uid() OR offers.yayinci_id = auth.uid())
     ));
-
   CREATE POLICY "insert own offer messages" ON messages FOR INSERT
     WITH CHECK (
       sender_id = auth.uid()
       AND EXISTS (
-        SELECT 1 FROM offers
-        WHERE offers.id = messages.offer_id
+        SELECT 1 FROM offers WHERE offers.id = messages.offer_id
           AND (offers.marka_id = auth.uid() OR offers.yayinci_id = auth.uid())
       )
     );
-
-  -- Enable realtime:
   ALTER PUBLICATION supabase_realtime ADD TABLE messages;
 */
 
@@ -61,9 +75,23 @@ type Message = {
   senderId:  string;
   content:   string;
   createdAt: string;
+  fileUrl:   string | null;
+  fileType:  string | null;
 };
 
-// ─── Status config ────────────────────────────────────────────────────────────
+type PendingFile = {
+  file:       File;
+  previewUrl: string;
+  fileType:   "image" | "video";
+  storageUrl: string | null;
+  uploading:  boolean;
+  error:      string | null;
+};
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/gif", "video/mp4"];
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 
 const STATUS_CFG: Record<DbOfferStatus, { bg: string; text: string; dot: string; label: string }> = {
   pending:   { bg: "#EBF4FF", text: "#185FA5", dot: "#185FA5", label: "Beklemede"    },
@@ -90,15 +118,18 @@ function fmtTime(iso: string): string {
   return d.toLocaleDateString("tr-TR", { day: "numeric", month: "short" });
 }
 
+function fmtBytes(n: number): string {
+  return n >= 1024 * 1024
+    ? (n / 1024 / 1024).toFixed(1) + " MB"
+    : (n / 1024).toFixed(0) + " KB";
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function Avatar({ name, size = "md" }: { name: string; size?: "sm" | "md" }) {
   const dim = size === "sm" ? "w-9 h-9 text-xs" : "w-11 h-11 text-sm";
   return (
-    <div
-      className={`${dim} rounded-xl flex items-center justify-center font-black text-white flex-shrink-0`}
-      style={{ backgroundColor: "#042C53" }}
-    >
+    <div className={`${dim} rounded-xl flex items-center justify-center font-black text-white flex-shrink-0`} style={{ backgroundColor: "#042C53" }}>
       {initials(name)}
     </div>
   );
@@ -119,15 +150,7 @@ function StatusChip({ status }: { status: DbOfferStatus }) {
   );
 }
 
-function ConvItem({
-  conv,
-  active,
-  onClick,
-}: {
-  conv: Conversation;
-  active: boolean;
-  onClick: () => void;
-}) {
+function ConvItem({ conv, active, onClick }: { conv: Conversation; active: boolean; onClick: () => void }) {
   const s = STATUS_CFG[conv.offerStatus] ?? STATUS_CFG.pending;
   return (
     <button
@@ -147,18 +170,12 @@ function ConvItem({
         </div>
         <p className="text-xs text-gray-500 truncate mb-1.5">{conv.lastMessage}</p>
         <div className="flex items-center gap-2">
-          <span
-            className="inline-flex items-center gap-1 text-xs font-medium rounded-full px-2 py-0.5"
-            style={{ backgroundColor: s.bg, color: s.text }}
-          >
+          <span className="inline-flex items-center gap-1 text-xs font-medium rounded-full px-2 py-0.5" style={{ backgroundColor: s.bg, color: s.text }}>
             <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: s.dot }} />
             {s.label}
           </span>
           {conv.unread > 0 && (
-            <span
-              className="ml-auto flex-shrink-0 w-5 h-5 rounded-full text-xs font-bold text-white flex items-center justify-center"
-              style={{ backgroundColor: "#185FA5" }}
-            >
+            <span className="ml-auto flex-shrink-0 w-5 h-5 rounded-full text-xs font-bold text-white flex items-center justify-center" style={{ backgroundColor: "#185FA5" }}>
               {conv.unread}
             </span>
           )}
@@ -180,13 +197,20 @@ export default function MessagesPage() {
   const [loading, setLoading]                 = useState(true);
   const [sending, setSending]                 = useState(false);
   const [input, setInput]                     = useState("");
+  const [pendingFile, setPendingFile]         = useState<PendingFile | null>(null);
   const [mobileView, setMobileView]           = useState<"list" | "chat">("list");
   const bottomRef                             = useRef<HTMLDivElement>(null);
   const channelRef                            = useRef<RealtimeChannel | null>(null);
+  const fileInputRef                          = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, selectedOfferId]);
+
+  // Revoke object URL on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => { if (pendingFile) URL.revokeObjectURL(pendingFile.previewUrl); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadConversations = useCallback(async () => {
     const supabase = createClient();
@@ -194,7 +218,6 @@ export default function MessagesPage() {
     if (!user) { router.push("/login"); return; }
     setCurrentUserId(user.id);
 
-    // 1. Offers where current user is marka or yayinci
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: offerRows, error: offerErr } = await (supabase
       .from("offers")
@@ -204,28 +227,22 @@ export default function MessagesPage() {
 
     if (offerErr || !offerRows?.length) { setLoading(false); return; }
 
-    // 2. Profiles of the other party in each offer
-    const otherIds = [
-      ...new Set(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (offerRows as any[]).map((o) => o.marka_id === user.id ? o.yayinci_id : o.marka_id)
-      ),
-    ];
+    const otherIds = [...new Set(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (offerRows as any[]).map((o) => o.marka_id === user.id ? o.yayinci_id : o.marka_id)
+    )];
     const { data: profileRows } = await supabase
-      .from("profiles")
-      .select("id, username, display_name")
-      .in("id", otherIds);
+      .from("profiles").select("id, username, display_name").in("id", otherIds);
 
     const profileMap: Record<string, { username: string; display_name: string }> = {};
     for (const p of profileRows ?? []) profileMap[p.id] = p;
 
-    // 3. All messages for these offers in one query
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const offerIds = (offerRows as any[]).map((o) => o.id);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: msgRows } = await (supabase
       .from("messages")
-      .select("id, offer_id, sender_id, content, created_at")
+      .select("id, offer_id, sender_id, content, file_url, file_type, created_at")
       .in("offer_id", offerIds)
       .order("created_at", { ascending: true }) as any);
 
@@ -233,17 +250,19 @@ export default function MessagesPage() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const m of (msgRows as any[]) ?? []) {
       if (!msgMap[m.offer_id]) msgMap[m.offer_id] = [];
-      msgMap[m.offer_id].push({ id: m.id, offerId: m.offer_id, senderId: m.sender_id, content: m.content, createdAt: m.created_at });
+      msgMap[m.offer_id].push({ id: m.id, offerId: m.offer_id, senderId: m.sender_id, content: m.content, createdAt: m.created_at, fileUrl: m.file_url ?? null, fileType: m.file_type ?? null });
     }
     setMessages(msgMap);
 
-    // 4. Build conversation list
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const convList: Conversation[] = (offerRows as any[]).map((o) => {
-      const otherId  = o.marka_id === user.id ? o.yayinci_id : o.marka_id;
-      const profile  = profileMap[otherId];
-      const msgs     = msgMap[o.id] ?? [];
-      const lastMsg  = msgs[msgs.length - 1];
+      const otherId = o.marka_id === user.id ? o.yayinci_id : o.marka_id;
+      const profile = profileMap[otherId];
+      const msgs    = msgMap[o.id] ?? [];
+      const lastMsg = msgs[msgs.length - 1];
+      const preview = lastMsg
+        ? (lastMsg.fileType === "image" ? "📷 Görsel" : lastMsg.fileType === "video" ? "🎬 Video" : lastMsg.content)
+        : o.content_type;
       return {
         offerId:               o.id,
         otherPartyId:          otherId,
@@ -251,7 +270,7 @@ export default function MessagesPage() {
         otherPartyDisplayName: profile?.display_name ?? "Kullanıcı",
         contentType:           o.content_type,
         offerStatus:           o.status as DbOfferStatus,
-        lastMessage:           lastMsg?.content ?? o.content_type,
+        lastMessage:           preview,
         lastTime:              lastMsg ? fmtTime(lastMsg.createdAt) : fmtTime(o.created_at),
         unread:                0,
       };
@@ -264,12 +283,10 @@ export default function MessagesPage() {
 
   useEffect(() => { loadConversations(); }, [loadConversations]);
 
-  // Realtime: subscribe per selected conversation
+  // Realtime subscription per conversation
   useEffect(() => {
     if (!selectedOfferId || !currentUserId) return;
-
     const supabase = createClient();
-
     if (channelRef.current) supabase.removeChannel(channelRef.current);
 
     const channel = supabase
@@ -280,20 +297,18 @@ export default function MessagesPage() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (payload: { new: any }) => {
           const m = payload.new;
+          const newMsg: Message = { id: m.id, offerId: m.offer_id, senderId: m.sender_id, content: m.content, createdAt: m.created_at, fileUrl: m.file_url ?? null, fileType: m.file_type ?? null };
           setMessages((prev) => {
             const existing = prev[m.offer_id] ?? [];
             if (existing.some((x) => x.id === m.id)) return prev;
-            return {
-              ...prev,
-              [m.offer_id]: [...existing, { id: m.id, offerId: m.offer_id, senderId: m.sender_id, content: m.content, createdAt: m.created_at }],
-            };
+            return { ...prev, [m.offer_id]: [...existing, newMsg] };
           });
-          setConvs((prev) =>
-            prev.map((c) => c.offerId === m.offer_id
-              ? { ...c, lastMessage: m.content, lastTime: fmtTime(m.created_at), unread: c.offerId === selectedOfferId ? 0 : c.unread + 1 }
+          const preview = m.file_type === "image" ? "📷 Görsel" : m.file_type === "video" ? "🎬 Video" : m.content;
+          setConvs((prev) => prev.map((c) =>
+            c.offerId === m.offer_id
+              ? { ...c, lastMessage: preview, lastTime: fmtTime(m.created_at), unread: c.offerId === selectedOfferId ? 0 : c.unread + 1 }
               : c
-            )
-          );
+          ));
         }
       )
       .subscribe();
@@ -301,6 +316,45 @@ export default function MessagesPage() {
     channelRef.current = channel;
     return () => { supabase.removeChannel(channel); };
   }, [selectedOfferId, currentUserId]);
+
+  async function handleFileSelect(file: File) {
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      alert("Desteklenmeyen dosya türü. JPG, PNG, GIF veya MP4 yükleyebilirsin.");
+      return;
+    }
+    if (file.size > MAX_FILE_SIZE) {
+      alert("Dosya boyutu 50 MB'tan büyük olamaz.");
+      return;
+    }
+
+    const fileType   = file.type.startsWith("video/") ? "video" : "image";
+    const previewUrl = URL.createObjectURL(file);
+    setPendingFile({ file, previewUrl, fileType, storageUrl: null, uploading: true, error: null });
+
+    if (!selectedOfferId || !currentUserId) return;
+
+    const ext  = file.name.split(".").pop()?.toLowerCase() ?? "bin";
+    const path = `${selectedOfferId}/${currentUserId}-${Date.now()}.${ext}`;
+
+    const supabase = createClient();
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from("message-files")
+      .upload(path, file, { contentType: file.type });
+
+    if (uploadError) {
+      console.error("[messages] file upload error:", uploadError);
+      setPendingFile((prev) => prev ? { ...prev, uploading: false, error: "Yükleme başarısız. Tekrar dene." } : null);
+      return;
+    }
+
+    const { data: { publicUrl } } = supabase.storage.from("message-files").getPublicUrl(uploadData.path);
+    setPendingFile((prev) => prev ? { ...prev, uploading: false, storageUrl: publicUrl } : null);
+  }
+
+  function clearPendingFile() {
+    if (pendingFile) URL.revokeObjectURL(pendingFile.previewUrl);
+    setPendingFile(null);
+  }
 
   function selectConv(offerId: string) {
     setSelectedOfferId(offerId);
@@ -310,40 +364,43 @@ export default function MessagesPage() {
 
   async function sendMessage() {
     const text = input.trim();
-    if (!text || !selectedOfferId || !currentUserId || sending) return;
+    if (!text && !pendingFile?.storageUrl) return;
+    if (pendingFile?.uploading) return;
+    if (!selectedOfferId || !currentUserId || sending) return;
 
     setSending(true);
     setInput("");
 
+    const fileUrl  = pendingFile?.storageUrl ?? null;
+    const fileType = pendingFile?.fileType   ?? null;
+    clearPendingFile();
+
     // Optimistic insert
     const tempId  = `temp-${Date.now()}`;
-    const tempMsg: Message = { id: tempId, offerId: selectedOfferId, senderId: currentUserId, content: text, createdAt: new Date().toISOString() };
+    const tempMsg: Message = { id: tempId, offerId: selectedOfferId, senderId: currentUserId, content: text, createdAt: new Date().toISOString(), fileUrl, fileType };
     setMessages((prev) => ({ ...prev, [selectedOfferId]: [...(prev[selectedOfferId] ?? []), tempMsg] }));
-    setConvs((prev) => prev.map((c) => c.offerId === selectedOfferId ? { ...c, lastMessage: text, lastTime: "Şimdi" } : c));
+    const preview = fileType === "image" ? "📷 Görsel" : fileType === "video" ? "🎬 Video" : text;
+    setConvs((prev) => prev.map((c) => c.offerId === selectedOfferId ? { ...c, lastMessage: preview, lastTime: "Şimdi" } : c));
 
     const supabase = createClient();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (supabase
       .from("messages")
-      .insert({ offer_id: selectedOfferId, sender_id: currentUserId, content: text })
-      .select()
-      .single() as any);
+      .insert({ offer_id: selectedOfferId, sender_id: currentUserId, content: text, file_url: fileUrl, file_type: fileType })
+      .select().single() as any);
 
     if (!error && data) {
       setMessages((prev) => ({
         ...prev,
         [selectedOfferId]: (prev[selectedOfferId] ?? []).map((m) =>
           m.id === tempId
-            ? { id: data.id, offerId: data.offer_id, senderId: data.sender_id, content: data.content, createdAt: data.created_at }
+            ? { id: data.id, offerId: data.offer_id, senderId: data.sender_id, content: data.content, createdAt: data.created_at, fileUrl: data.file_url ?? null, fileType: data.file_type ?? null }
             : m
         ),
       }));
     } else if (error) {
       console.error("[messages] send error:", error);
-      setMessages((prev) => ({
-        ...prev,
-        [selectedOfferId]: (prev[selectedOfferId] ?? []).filter((m) => m.id !== tempId),
-      }));
+      setMessages((prev) => ({ ...prev, [selectedOfferId]: (prev[selectedOfferId] ?? []).filter((m) => m.id !== tempId) }));
     }
 
     setSending(false);
@@ -355,6 +412,7 @@ export default function MessagesPage() {
 
   const activeConv     = convs.find((c) => c.offerId === selectedOfferId) ?? null;
   const activeMessages = selectedOfferId ? (messages[selectedOfferId] ?? []) : [];
+  const canSend        = (!!input.trim() || !!pendingFile?.storageUrl) && !pendingFile?.uploading && !sending;
 
   if (loading) {
     return (
@@ -383,7 +441,6 @@ export default function MessagesPage() {
               <h2 className="text-base font-extrabold" style={{ color: "#042C53" }}>Mesajlar</h2>
               <p className="text-xs text-gray-400 mt-0.5">{convs.length} konuşma</p>
             </div>
-
             <div className="flex-1 overflow-y-auto py-2 px-2">
               {convs.length === 0 ? (
                 <div className="py-16 text-center px-4">
@@ -393,12 +450,7 @@ export default function MessagesPage() {
                 </div>
               ) : (
                 convs.map((conv) => (
-                  <ConvItem
-                    key={conv.offerId}
-                    conv={conv}
-                    active={selectedOfferId === conv.offerId}
-                    onClick={() => selectConv(conv.offerId)}
-                  />
+                  <ConvItem key={conv.offerId} conv={conv} active={selectedOfferId === conv.offerId} onClick={() => selectConv(conv.offerId)} />
                 ))
               )}
             </div>
@@ -418,17 +470,12 @@ export default function MessagesPage() {
               <>
                 {/* Chat header */}
                 <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3 flex-shrink-0">
-                  <button
-                    className="md:hidden text-gray-400 hover:text-gray-700 p-1 -ml-1 rounded-lg"
-                    onClick={() => setMobileView("list")}
-                  >
+                  <button className="md:hidden text-gray-400 hover:text-gray-700 p-1 -ml-1 rounded-lg" onClick={() => setMobileView("list")}>
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                     </svg>
                   </button>
-
                   <Avatar name={activeConv.otherPartyDisplayName} />
-
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="text-sm font-bold" style={{ color: "#042C53" }}>@{activeConv.otherPartyUsername}</p>
@@ -438,12 +485,7 @@ export default function MessagesPage() {
                     </div>
                     <p className="text-xs text-gray-400 mt-0.5">{activeConv.otherPartyDisplayName}</p>
                   </div>
-
-                  <a
-                    href={`/profile/${activeConv.otherPartyUsername}`}
-                    className="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors flex-shrink-0"
-                    style={{ borderColor: "#E6F1FB", color: "#185FA5" }}
-                  >
+                  <a href={`/profile/${activeConv.otherPartyUsername}`} className="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors flex-shrink-0" style={{ borderColor: "#E6F1FB", color: "#185FA5" }}>
                     Profili Gör
                   </a>
                 </div>
@@ -465,16 +507,40 @@ export default function MessagesPage() {
                       return (
                         <div key={msg.id} className={`flex ${isSent ? "justify-end" : "justify-start"} mb-1`}>
                           <div className="flex flex-col gap-1" style={{ maxWidth: "70%" }}>
-                            <div
-                              className="px-4 py-2.5 rounded-2xl text-sm leading-relaxed"
-                              style={
-                                isSent
+
+                            {/* Text bubble */}
+                            {msg.content && (
+                              <div
+                                className="px-4 py-2.5 rounded-2xl text-sm leading-relaxed"
+                                style={isSent
                                   ? { backgroundColor: "#185FA5", color: "white", borderBottomRightRadius: "4px" }
-                                  : { backgroundColor: "#F3F4F6", color: "#111827", borderBottomLeftRadius: "4px" }
-                              }
-                            >
-                              {msg.content}
-                            </div>
+                                  : { backgroundColor: "#F3F4F6", color: "#111827", borderBottomLeftRadius: "4px" }}
+                              >
+                                {msg.content}
+                              </div>
+                            )}
+
+                            {/* Image */}
+                            {msg.fileUrl && msg.fileType === "image" && (
+                              <img
+                                src={msg.fileUrl}
+                                alt="Görsel"
+                                className="rounded-2xl max-w-full cursor-pointer object-cover"
+                                style={{ maxHeight: "300px" }}
+                                onClick={() => window.open(msg.fileUrl!, "_blank")}
+                              />
+                            )}
+
+                            {/* Video */}
+                            {msg.fileUrl && msg.fileType === "video" && (
+                              <video
+                                src={msg.fileUrl}
+                                controls
+                                className="rounded-2xl max-w-full"
+                                style={{ maxHeight: "300px" }}
+                              />
+                            )}
+
                             <span className={`text-xs text-gray-400 ${isSent ? "text-right" : "text-left"} px-1`}>
                               {fmtTime(msg.createdAt)}
                             </span>
@@ -486,9 +552,72 @@ export default function MessagesPage() {
                   <div ref={bottomRef} />
                 </div>
 
-                {/* Input */}
+                {/* Input area */}
                 <div className="px-4 py-4 border-t border-gray-100 flex-shrink-0">
-                  <div className="flex items-end gap-3">
+
+                  {/* File preview */}
+                  {pendingFile && (
+                    <div className="mb-3 rounded-xl border border-gray-200 p-3 bg-gray-50 flex items-start gap-3">
+                      {pendingFile.fileType === "image" ? (
+                        <img src={pendingFile.previewUrl} alt="" className="w-16 h-16 object-cover rounded-lg flex-shrink-0" />
+                      ) : (
+                        <div className="w-16 h-16 rounded-lg bg-gray-200 flex items-center justify-center flex-shrink-0">
+                          <svg className="w-7 h-7 text-gray-500" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M8 5v14l11-7z" />
+                          </svg>
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-gray-700 truncate">{pendingFile.file.name}</p>
+                        <p className="text-xs text-gray-400">{fmtBytes(pendingFile.file.size)}</p>
+                        {pendingFile.uploading && (
+                          <p className="text-xs mt-1 flex items-center gap-1" style={{ color: "#185FA5" }}>
+                            <span className="inline-block w-3 h-3 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "#185FA5", borderTopColor: "transparent" }} />
+                            Yükleniyor…
+                          </p>
+                        )}
+                        {pendingFile.error && <p className="text-xs text-red-500 mt-1">{pendingFile.error}</p>}
+                        {!pendingFile.uploading && !pendingFile.error && pendingFile.storageUrl && (
+                          <p className="text-xs text-green-600 mt-1 font-medium">✓ Hazır</p>
+                        )}
+                      </div>
+                      <button onClick={clearPendingFile} className="text-gray-400 hover:text-gray-600 flex-shrink-0 p-0.5">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="flex items-end gap-2">
+                    {/* Hidden file input */}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/gif,video/mp4"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) handleFileSelect(f);
+                        e.target.value = "";
+                      }}
+                    />
+
+                    {/* Paperclip button */}
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={sending || !!pendingFile}
+                      title="Dosya ekle (JPG, PNG, GIF, MP4 — maks. 50 MB)"
+                      className="flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center transition-colors border border-gray-200 hover:border-gray-300 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                      style={{ color: "#6B7280" }}
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                      </svg>
+                    </button>
+
+                    {/* Text input */}
                     <textarea
                       rows={1}
                       placeholder="Mesaj yaz…"
@@ -503,9 +632,11 @@ export default function MessagesPage() {
                       className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 outline-none transition-all focus:border-[#185FA5] focus:ring-2 focus:ring-[#185FA5]/20 resize-none overflow-hidden disabled:opacity-60"
                       style={{ minHeight: "42px" }}
                     />
+
+                    {/* Send button */}
                     <button
                       onClick={sendMessage}
-                      disabled={!input.trim() || sending}
+                      disabled={!canSend}
                       className="flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center text-white transition-all hover:opacity-90 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
                       style={{ backgroundColor: "#185FA5" }}
                     >
