@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 
 type Role = "yayinci" | "marka" | null;
@@ -32,6 +33,7 @@ function DropdownLink({
 }
 
 export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps) {
+  const router = useRouter();
   const [loggedIn,     setLoggedIn]     = useState(false);
   const [username,     setUsername]     = useState<string | null>(null);
   const [role,         setRole]         = useState<Role>(null);
@@ -42,7 +44,7 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
   useEffect(() => {
     const supabase = createClient();
 
-    async function syncUser(userId: string | null) {
+    async function syncUser(userId: string | null, metaUsername?: string, metaRole?: string) {
       if (!userId) {
         setLoggedIn(false);
         setUsername(null);
@@ -51,24 +53,32 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
         return;
       }
       setLoggedIn(true);
+      // Show metadata immediately while the DB query runs
+      if (metaUsername) setUsername(metaUsername);
+      if (metaRole)     setRole(metaRole as Role);
+
       const { data: profile } = await supabase
         .from("profiles")
         .select("username, role")
         .eq("id", userId)
         .maybeSingle();
-      setUsername(profile?.username ?? null);
-      setRole((profile?.role as Role) ?? null);
+
+      // DB values win; fall back to metadata if profile not yet created
+      setUsername(profile?.username ?? metaUsername ?? null);
+      setRole((profile?.role ?? metaRole ?? null) as Role);
     }
 
-    // Seed from the current session immediately so the navbar is correct on first paint
+    // Seed from current session immediately so the navbar is correct on first paint
     supabase.auth.getSession().then(({ data: { session } }) => {
-      syncUser(session?.user?.id ?? null);
+      const u = session?.user;
+      syncUser(u?.id ?? null, u?.user_metadata?.username, u?.user_metadata?.role);
     });
 
-    // Stay in sync across login / logout / token refresh on any page
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => syncUser(session?.user?.id ?? null)
-    );
+    // Stay in sync across login / logout / token refresh on every page
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const u = session?.user;
+      syncUser(u?.id ?? null, u?.user_metadata?.username, u?.user_metadata?.role);
+    });
 
     return () => subscription.unsubscribe();
   }, []);
@@ -96,7 +106,7 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
     setDropdownOpen(false);
     const supabase = createClient();
     await supabase.auth.signOut();
-    window.location.href = "/";
+    router.push("/");
   }
 
   const avatarInitials = username ? username.slice(0, 2).toUpperCase() : "?";

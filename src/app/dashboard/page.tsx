@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
+import Navbar from "@/components/Navbar";
 
 type Role = "yayinci" | "marka" | null;
 
@@ -60,12 +61,6 @@ const MARKA_CARDS = [
   },
 ];
 
-function roleName(role: Role) {
-  if (role === "yayinci") return "Yayıncı";
-  if (role === "marka") return "Marka";
-  return null;
-}
-
 function roleEmoji(role: Role) {
   if (role === "yayinci") return "🎙️";
   if (role === "marka") return "🏢";
@@ -74,7 +69,6 @@ function roleEmoji(role: Role) {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [email, setEmail] = useState<string | null>(null);
   const [role, setRole] = useState<Role>(null);
   const [loading, setLoading] = useState(true);
 
@@ -87,7 +81,6 @@ export default function DashboardPage() {
         return;
       }
 
-      setEmail(data.user.email ?? null);
       setRole((data.user.user_metadata?.role as Role) ?? null);
 
       // Finish deferred profile insert (email-confirmed users)
@@ -136,66 +129,41 @@ export default function DashboardPage() {
     });
   }, [router]);
 
-  async function handleSignOut() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/login");
-  }
-
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: "linear-gradient(135deg, #E6F1FB 0%, #ffffff 60%)" }}>
-        <div className="w-8 h-8 rounded-full border-4 border-t-transparent animate-spin" style={{ borderColor: "#185FA5", borderTopColor: "transparent" }} />
+      <div className="min-h-screen bg-gray-50 flex flex-col">
+        <Navbar />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="w-8 h-8 rounded-full border-4 border-t-transparent animate-spin" style={{ borderColor: "#185FA5", borderTopColor: "transparent" }} />
+        </div>
       </div>
     );
   }
 
   const cards = role === "marka" ? MARKA_CARDS : YAYINCI_CARDS;
 
+  const dashNav = role ? (
+    <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
+      {role === "yayinci" ? (
+        <>
+          <a href="/offers"           className="text-gray-600 hover:text-[#185FA5] transition-colors">Teklifler</a>
+          <a href="/earnings"         className="text-gray-600 hover:text-[#185FA5] transition-colors">Kazançlar</a>
+          <a href="/profile/complete" className="text-gray-600 hover:text-[#185FA5] transition-colors">Profilim</a>
+        </>
+      ) : (
+        <>
+          <a href="/search"    className="text-gray-600 hover:text-[#185FA5] transition-colors">Sponsor Bul</a>
+          <a href="/campaigns" className="text-gray-600 hover:text-[#185FA5] transition-colors">Kampanyalarım</a>
+          <a href="/payments"  className="text-gray-600 hover:text-[#185FA5] transition-colors">Ödemeler</a>
+        </>
+      )}
+    </nav>
+  ) : undefined;
+
   return (
     <div className="min-h-screen bg-gray-50">
 
-      {/* Header */}
-      <header className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
-          <div className="flex items-center gap-8">
-            <a href="/" className="text-2xl font-extrabold tracking-tight" style={{ color: "#185FA5" }}>
-              Sponsorum
-            </a>
-            {role && (
-              <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
-                {role === "yayinci" ? (
-                  <>
-                    <a href="/offers"           className="text-gray-600 hover:text-[#185FA5] transition-colors">Teklifler</a>
-                    <a href="/earnings"         className="text-gray-600 hover:text-[#185FA5] transition-colors">Kazançlar</a>
-                    <a href="/profile/complete" className="text-gray-600 hover:text-[#185FA5] transition-colors">Profilim</a>
-                  </>
-                ) : (
-                  <>
-                    <a href="/search"    className="text-gray-600 hover:text-[#185FA5] transition-colors">Sponsor Bul</a>
-                    <a href="/campaigns" className="text-gray-600 hover:text-[#185FA5] transition-colors">Kampanyalarım</a>
-                    <a href="/payments"  className="text-gray-600 hover:text-[#185FA5] transition-colors">Ödemeler</a>
-                  </>
-                )}
-              </nav>
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            {role && (
-              <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold rounded-full px-3 py-1" style={{ backgroundColor: "#E6F1FB", color: "#185FA5" }}>
-                {roleEmoji(role)} {roleName(role)}
-              </span>
-            )}
-            <span className="hidden md:block text-sm text-gray-500">{email}</span>
-            <button
-              onClick={handleSignOut}
-              className="text-sm font-medium px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:border-[#185FA5] hover:text-[#185FA5] transition-colors"
-            >
-              Çıkış Yap
-            </button>
-          </div>
-        </div>
-      </header>
+      <Navbar navLinks={dashNav} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
 

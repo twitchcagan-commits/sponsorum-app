@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { createClient } from "@/lib/supabase";
 import Navbar from "@/components/Navbar";
 
 const CATEGORIES = [
@@ -20,6 +22,15 @@ const HOME_NAV = (
 );
 
 export default function Home() {
+  const [loggedIn, setLoggedIn] = useState(false);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getSession().then(({ data: { session } }) => setLoggedIn(!!session));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => setLoggedIn(!!s));
+    return () => subscription.unsubscribe();
+  }, []);
+
   return (
     <div className="min-h-screen bg-white font-sans text-gray-900">
 
@@ -51,7 +62,7 @@ export default function Home() {
               Sponsor Bul
             </a>
             <a
-              href="/register"
+              href={loggedIn ? "/profile/complete" : "/register"}
               className="inline-flex items-center justify-center gap-2 text-base font-semibold rounded-xl px-8 py-4 border-2 transition-all hover:-translate-y-0.5"
               style={{ borderColor: "#185FA5", color: "#185FA5", backgroundColor: "white" }}
             >

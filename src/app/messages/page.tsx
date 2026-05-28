@@ -52,6 +52,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import type { RealtimeChannel } from "@supabase/supabase-js";
+import Navbar from "@/components/Navbar";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -425,12 +426,7 @@ export default function MessagesPage() {
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
 
-      <header className="bg-white border-b border-gray-100 shadow-sm flex-shrink-0 sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
-          <a href="/" className="text-2xl font-extrabold tracking-tight" style={{ color: "#185FA5" }}>Sponsorum</a>
-          <a href="/dashboard" className="text-sm font-medium text-gray-500 hover:text-[#185FA5] transition-colors">Dashboard</a>
-        </div>
-      </header>
+      <Navbar />
 
       <div className="flex-1 flex overflow-hidden max-w-6xl w-full mx-auto px-0 sm:px-4 lg:px-8 py-0 sm:py-6" style={{ height: "calc(100vh - 64px)" }}>
         <div className="flex w-full h-full bg-white sm:rounded-2xl sm:border sm:border-gray-100 sm:shadow-sm overflow-hidden">
