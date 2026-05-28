@@ -12,6 +12,7 @@ const YAYINCI_CARDS = [
     title: "Profilini Tamamla",
     desc: "Platform, kategori ve istatistiklerini ekleyerek markalara görünür ol.",
     cta: "Profile Git →",
+    href: "/profile/complete",
     accent: "#185FA5",
   },
   {
@@ -19,6 +20,7 @@ const YAYINCI_CARDS = [
     title: "Teklifler",
     desc: "Markalardan gelen sponsorluk tekliflerini incele ve yanıtla.",
     cta: "Teklifleri Gör →",
+    href: "/offers",
     accent: "#185FA5",
   },
   {
@@ -26,6 +28,7 @@ const YAYINCI_CARDS = [
     title: "Kazançlar",
     desc: "Tamamlanan kampanyalarından elde ettiğin kazançları ve ödemeleri takip et.",
     cta: "Kazançları Gör →",
+    href: "/earnings",
     accent: "#185FA5",
   },
 ];
@@ -36,6 +39,7 @@ const MARKA_CARDS = [
     title: "Sponsor Bul",
     desc: "Platform, kategori ve bütçene göre sana uygun yayıncıları filtrele.",
     cta: "Aramaya Başla →",
+    href: "/search",
     accent: "#185FA5",
   },
   {
@@ -43,6 +47,7 @@ const MARKA_CARDS = [
     title: "Kampanyalarım",
     desc: "Aktif ve tamamlanan kampanyalarını yönet, performansı takip et.",
     cta: "Kampanyalara Git →",
+    href: "/campaigns",
     accent: "#185FA5",
   },
   {
@@ -50,6 +55,7 @@ const MARKA_CARDS = [
     title: "Ödemeler",
     desc: "Escrow'daki ödemeleri, fatura geçmişini ve bekleyen işlemleri görüntüle.",
     cta: "Ödemelere Git →",
+    href: "/payments",
     accent: "#185FA5",
   },
 ];
@@ -214,9 +220,10 @@ export default function DashboardPage() {
         <h2 className="text-lg font-bold mb-5" style={{ color: "#042C53" }}>Ne yapmak istersin?</h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
           {cards.map((card) => (
-            <div
+            <a
               key={card.title}
-              className="bg-white rounded-2xl p-7 shadow-sm border border-gray-100 flex flex-col gap-4 hover:shadow-md hover:-translate-y-0.5 transition-all cursor-pointer group"
+              href={card.href}
+              className="bg-white rounded-2xl p-7 shadow-sm border border-gray-100 flex flex-col gap-4 hover:shadow-md hover:-translate-y-0.5 transition-all group no-underline"
             >
               <div
                 className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl"
@@ -234,7 +241,7 @@ export default function DashboardPage() {
               >
                 {card.cta}
               </span>
-            </div>
+            </a>
           ))}
         </div>
 
@@ -251,12 +258,13 @@ export default function DashboardPage() {
                 : "Marka profilini tamamla, yayıncıların sana ulaşmasını kolaylaştır."}
             </p>
           </div>
-          <button
+          <a
+            href="/profile/complete"
             className="flex-shrink-0 rounded-xl px-6 py-3 text-sm font-semibold text-white transition-all hover:opacity-90"
             style={{ backgroundColor: "#185FA5" }}
           >
             Profili Tamamla →
-          </button>
+          </a>
         </div>
 
       </main>
