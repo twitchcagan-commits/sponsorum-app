@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { createClient } from "@/lib/supabase";
+import Navbar from "@/components/Navbar";
 
 const CATEGORIES = [
   { label: "Oyun Yayıncıları",       emoji: "🎮", slug: "oyun"        },
@@ -12,75 +11,19 @@ const CATEGORIES = [
   { label: "Diğer",                   emoji: "✨", slug: "diger"       },
 ];
 
+const HOME_NAV = (
+  <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-gray-600">
+    <a href="#nasil-calisir" className="hover:text-[#185FA5] transition-colors">Nasıl çalışır</a>
+    <a href="/search"        className="hover:text-[#185FA5] transition-colors">Yayıncılar</a>
+    <a href="/register"      className="hover:text-[#185FA5] transition-colors">Fiyatlar</a>
+  </nav>
+);
+
 export default function Home() {
-  const [loggedIn, setLoggedIn] = useState(false);
-
-  useEffect(() => {
-    const supabase = createClient();
-    supabase.auth.getUser().then(({ data: { user } }) => setLoggedIn(!!user));
-  }, []);
-
-  async function handleLogout() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    setLoggedIn(false);
-  }
-
   return (
     <div className="min-h-screen bg-white font-sans text-gray-900">
 
-      {/* NAVBAR */}
-      <header className="sticky top-0 z-50 bg-white border-b border-gray-100 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
-          <a href="/" className="text-2xl font-extrabold tracking-tight" style={{ color: "#185FA5" }}>
-            Sponsorum
-          </a>
-          <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-gray-600">
-            <a href="#nasil-calisir" className="hover:text-[#185FA5] transition-colors">Nasıl çalışır</a>
-            <a href="/search"        className="hover:text-[#185FA5] transition-colors">Yayıncılar</a>
-            <a href="/register"      className="hover:text-[#185FA5] transition-colors">Fiyatlar</a>
-          </nav>
-          <div className="flex items-center gap-3">
-            {loggedIn ? (
-              <>
-                <a
-                  href="/dashboard"
-                  className="hidden sm:inline-block text-sm font-medium text-gray-600 hover:text-[#185FA5] transition-colors px-3 py-2"
-                >
-                  Dashboard
-                </a>
-                <button
-                  onClick={handleLogout}
-                  className="text-sm font-semibold text-white rounded-lg px-4 py-2 transition-colors"
-                  style={{ backgroundColor: "#185FA5" }}
-                  onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#042C53")}
-                  onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#185FA5")}
-                >
-                  Çıkış Yap
-                </button>
-              </>
-            ) : (
-              <>
-                <a
-                  href="/login"
-                  className="hidden sm:inline-block text-sm font-medium text-gray-600 hover:text-[#185FA5] transition-colors px-3 py-2"
-                >
-                  Giriş
-                </a>
-                <a
-                  href="/register"
-                  className="text-sm font-semibold text-white rounded-lg px-4 py-2 transition-colors"
-                  style={{ backgroundColor: "#185FA5" }}
-                  onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#042C53")}
-                  onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#185FA5")}
-                >
-                  Ücretsiz başla
-                </a>
-              </>
-            )}
-          </div>
-        </div>
-      </header>
+      <Navbar navLinks={HOME_NAV} />
 
       {/* HERO */}
       <section className="relative overflow-hidden" style={{ background: "linear-gradient(135deg, #E6F1FB 0%, #ffffff 60%)" }}>

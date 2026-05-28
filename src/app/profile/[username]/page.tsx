@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { createClient } from "@/lib/supabase";
+import Navbar from "@/components/Navbar";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -236,9 +237,7 @@ function LoadingSkeleton() {
 function NotFound({ username }: { username: string }) {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      <header className="bg-white border-b border-gray-100 shadow-sm h-16 flex items-center px-6">
-        <a href="/" className="text-2xl font-extrabold tracking-tight" style={{ color: "#185FA5" }}>Sponsorum</a>
-      </header>
+      <Navbar />
       <div className="flex-1 flex items-center justify-center px-4">
         <div className="text-center">
           <div className="text-6xl mb-4">🔍</div>
@@ -380,17 +379,7 @@ export default function ProfilePage() {
   return (
     <div className="min-h-screen bg-gray-50">
 
-      {/* Navbar */}
-      <header className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-50">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
-          <a href="/" className="text-2xl font-extrabold tracking-tight" style={{ color: "#185FA5" }}>
-            Sponsorum
-          </a>
-          <a href="/search" className="text-sm font-medium text-gray-500 hover:text-[#185FA5] transition-colors">
-            ← Aramaya Dön
-          </a>
-        </div>
-      </header>
+      <Navbar />
 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
 

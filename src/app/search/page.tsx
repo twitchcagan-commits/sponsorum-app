@@ -2,6 +2,7 @@
 // Search page — yayinci discovery with platform/niche/follower filters
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase";
+import Navbar from "@/components/Navbar";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -488,28 +489,7 @@ export default function SearchPage() {
   return (
     <div className="min-h-screen bg-gray-50">
 
-      {/* Header */}
-      <header className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
-          <a href="/" className="text-2xl font-extrabold tracking-tight" style={{ color: "#185FA5" }}>
-            Sponsorum
-          </a>
-          <div className="flex items-center gap-3">
-            <a href="/dashboard" className="text-sm font-medium text-gray-500 hover:text-[#185FA5] transition-colors">
-              Dashboard
-            </a>
-            <a
-              href="/login"
-              className="text-sm font-semibold text-white rounded-lg px-4 py-2 transition-colors"
-              style={{ backgroundColor: "#185FA5" }}
-              onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#042C53")}
-              onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#185FA5")}
-            >
-              Giriş Yap
-            </a>
-          </div>
-        </div>
-      </header>
+      <Navbar />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
