@@ -158,9 +158,28 @@ export default function DashboardPage() {
       {/* Header */}
       <header className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
-          <a href="/" className="text-2xl font-extrabold tracking-tight" style={{ color: "#185FA5" }}>
-            Sponsorum
-          </a>
+          <div className="flex items-center gap-8">
+            <a href="/" className="text-2xl font-extrabold tracking-tight" style={{ color: "#185FA5" }}>
+              Sponsorum
+            </a>
+            {role && (
+              <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
+                {role === "yayinci" ? (
+                  <>
+                    <a href="/offers"           className="text-gray-600 hover:text-[#185FA5] transition-colors">Teklifler</a>
+                    <a href="/earnings"         className="text-gray-600 hover:text-[#185FA5] transition-colors">Kazançlar</a>
+                    <a href="/profile/complete" className="text-gray-600 hover:text-[#185FA5] transition-colors">Profilim</a>
+                  </>
+                ) : (
+                  <>
+                    <a href="/search"    className="text-gray-600 hover:text-[#185FA5] transition-colors">Sponsor Bul</a>
+                    <a href="/campaigns" className="text-gray-600 hover:text-[#185FA5] transition-colors">Kampanyalarım</a>
+                    <a href="/payments"  className="text-gray-600 hover:text-[#185FA5] transition-colors">Ödemeler</a>
+                  </>
+                )}
+              </nav>
+            )}
+          </div>
           <div className="flex items-center gap-3">
             {role && (
               <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold rounded-full px-3 py-1" style={{ backgroundColor: "#E6F1FB", color: "#185FA5" }}>
