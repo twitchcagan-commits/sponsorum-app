@@ -1,33 +1,83 @@
 "use client";
 
+import { useState, useEffect } from "react";
+import { createClient } from "@/lib/supabase";
+
+const CATEGORIES = [
+  { label: "Oyun Yayıncıları",       emoji: "🎮", slug: "oyun"        },
+  { label: "Futbol Editörleri",       emoji: "⚽", slug: "futbol"      },
+  { label: "Mizah / Caps",            emoji: "😂", slug: "mizah"       },
+  { label: "Influencer & Fenomenler", emoji: "🌟", slug: "influencer"  },
+  { label: "Müzik",                   emoji: "🎤", slug: "muzik"       },
+  { label: "Diğer",                   emoji: "✨", slug: "diger"       },
+];
+
 export default function Home() {
+  const [loggedIn, setLoggedIn] = useState(false);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data: { user } }) => setLoggedIn(!!user));
+  }, []);
+
+  async function handleLogout() {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    setLoggedIn(false);
+  }
+
   return (
     <div className="min-h-screen bg-white font-sans text-gray-900">
 
       {/* NAVBAR */}
       <header className="sticky top-0 z-50 bg-white border-b border-gray-100 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
-          <a href="#" className="text-2xl font-extrabold tracking-tight" style={{ color: "#185FA5" }}>
+          <a href="/" className="text-2xl font-extrabold tracking-tight" style={{ color: "#185FA5" }}>
             Sponsorum
           </a>
           <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-gray-600">
             <a href="#nasil-calisir" className="hover:text-[#185FA5] transition-colors">Nasıl çalışır</a>
-            <a href="#yayincilar" className="hover:text-[#185FA5] transition-colors">Yayıncılar</a>
-            <a href="#fiyatlar" className="hover:text-[#185FA5] transition-colors">Fiyatlar</a>
+            <a href="/search"        className="hover:text-[#185FA5] transition-colors">Yayıncılar</a>
+            <a href="/register"      className="hover:text-[#185FA5] transition-colors">Fiyatlar</a>
           </nav>
           <div className="flex items-center gap-3">
-            <a href="#" className="hidden sm:inline-block text-sm font-medium text-gray-600 hover:text-[#185FA5] transition-colors px-3 py-2">
-              Giriş
-            </a>
-            <a
-              href="#"
-              className="text-sm font-semibold text-white rounded-lg px-4 py-2 transition-colors"
-              style={{ backgroundColor: "#185FA5" }}
-              onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#042C53")}
-              onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#185FA5")}
-            >
-              Ücretsiz başla
-            </a>
+            {loggedIn ? (
+              <>
+                <a
+                  href="/dashboard"
+                  className="hidden sm:inline-block text-sm font-medium text-gray-600 hover:text-[#185FA5] transition-colors px-3 py-2"
+                >
+                  Dashboard
+                </a>
+                <button
+                  onClick={handleLogout}
+                  className="text-sm font-semibold text-white rounded-lg px-4 py-2 transition-colors"
+                  style={{ backgroundColor: "#185FA5" }}
+                  onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#042C53")}
+                  onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#185FA5")}
+                >
+                  Çıkış Yap
+                </button>
+              </>
+            ) : (
+              <>
+                <a
+                  href="/login"
+                  className="hidden sm:inline-block text-sm font-medium text-gray-600 hover:text-[#185FA5] transition-colors px-3 py-2"
+                >
+                  Giriş
+                </a>
+                <a
+                  href="/register"
+                  className="text-sm font-semibold text-white rounded-lg px-4 py-2 transition-colors"
+                  style={{ backgroundColor: "#185FA5" }}
+                  onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#042C53")}
+                  onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#185FA5")}
+                >
+                  Ücretsiz başla
+                </a>
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -51,18 +101,18 @@ export default function Home() {
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <a
-              href="#"
+              href="/search"
               className="inline-flex items-center justify-center gap-2 text-base font-semibold text-white rounded-xl px-8 py-4 shadow-lg transition-all hover:shadow-xl hover:-translate-y-0.5"
               style={{ backgroundColor: "#185FA5" }}
             >
               Sponsor Bul
             </a>
             <a
-              href="#"
+              href="/register"
               className="inline-flex items-center justify-center gap-2 text-base font-semibold rounded-xl px-8 py-4 border-2 transition-all hover:-translate-y-0.5"
               style={{ borderColor: "#185FA5", color: "#185FA5", backgroundColor: "white" }}
             >
-              Yayıncı Ol
+              Yayıncı Ol &amp; Para Kazan
             </a>
           </div>
         </div>
@@ -78,11 +128,11 @@ export default function Home() {
           <div className="flex flex-wrap items-center justify-center gap-8 md:gap-14">
             {[
               { name: "X (Twitter)", icon: "𝕏" },
-              { name: "Instagram", icon: "📸" },
-              { name: "TikTok", icon: "🎵" },
-              { name: "YouTube", icon: "▶" },
-              { name: "Kick", icon: "🟢" },
-              { name: "Twitch", icon: "💜" },
+              { name: "Instagram",   icon: "📸" },
+              { name: "TikTok",      icon: "🎵" },
+              { name: "YouTube",     icon: "▶"  },
+              { name: "Kick",        icon: "🟢" },
+              { name: "Twitch",      icon: "💜" },
             ].map((p) => (
               <div key={p.name} className="flex items-center gap-2 text-gray-500 hover:text-[#185FA5] transition-colors cursor-default">
                 <span className="text-xl">{p.icon}</span>
@@ -141,24 +191,18 @@ export default function Home() {
             <p className="text-gray-600 text-lg max-w-xl mx-auto">Her nişten yayıncı, her bütçeye uygun sponsor.</p>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-            {[
-              { label: "Oyun Yayıncıları", emoji: "🎮" },
-              { label: "Futbol Editörleri", emoji: "⚽" },
-              { label: "Mizah / Caps", emoji: "😂" },
-              { label: "Influencer & Fenomenler", emoji: "🌟" },
-              { label: "Müzik", emoji: "🎤" },
-              { label: "Diğer", emoji: "✨" },
-            ].map((cat) => (
-              <div
+            {CATEGORIES.map((cat) => (
+              <a
                 key={cat.label}
-                className="flex flex-col items-center gap-3 p-6 rounded-2xl border-2 border-transparent cursor-pointer transition-all hover:-translate-y-1 hover:shadow-md"
+                href={`/search?category=${cat.slug}`}
+                className="flex flex-col items-center gap-3 p-6 rounded-2xl border-2 border-transparent transition-all hover:-translate-y-1 hover:shadow-md"
                 style={{ backgroundColor: "#E6F1FB" }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor = "#185FA5"; }}
                 onMouseLeave={e => { e.currentTarget.style.borderColor = "transparent"; }}
               >
                 <span className="text-4xl">{cat.emoji}</span>
                 <span className="text-sm font-semibold text-center leading-snug" style={{ color: "#042C53" }}>{cat.label}</span>
-              </div>
+              </a>
             ))}
           </div>
         </div>
@@ -213,7 +257,7 @@ export default function Home() {
             Kayıt ol, profilini oluştur ve ilk sponsorluk teklifini al.
           </p>
           <a
-            href="#"
+            href="/register"
             className="inline-flex items-center justify-center text-base font-semibold text-white rounded-xl px-10 py-4 shadow-lg transition-all hover:shadow-xl hover:-translate-y-0.5"
             style={{ backgroundColor: "#185FA5" }}
           >
@@ -227,10 +271,10 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <span className="text-sm text-gray-400">© 2026 Sponsorum. Tüm hakları saklıdır.</span>
           <div className="flex items-center gap-6 text-sm text-gray-500">
-            <a href="/kullanim-sartlari" className="hover:text-[#185FA5] transition-colors">Kullanım Şartları</a>
+            <a href="/kullanim-sartlari"   className="hover:text-[#185FA5] transition-colors">Kullanım Şartları</a>
             <a href="/gizlilik-politikasi" className="hover:text-[#185FA5] transition-colors">Gizlilik</a>
-            <a href="/kvkk" className="hover:text-[#185FA5] transition-colors">KVKK</a>
-            <a href="/cerez-politikasi" className="hover:text-[#185FA5] transition-colors">Çerezler</a>
+            <a href="/kvkk"                className="hover:text-[#185FA5] transition-colors">KVKK</a>
+            <a href="/cerez-politikasi"    className="hover:text-[#185FA5] transition-colors">Çerezler</a>
           </div>
         </div>
       </footer>
