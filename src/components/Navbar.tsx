@@ -32,45 +32,42 @@ function DropdownLink({
 }
 
 export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps) {
-  const [loggedIn,    setLoggedIn]    = useState(false);
-  const [username,    setUsername]    = useState<string | null>(null);
-  const [role,        setRole]        = useState<Role>(null);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [loggedIn,     setLoggedIn]     = useState(false);
+  const [username,     setUsername]     = useState<string | null>(null);
+  const [role,         setRole]         = useState<Role>(null);
+  const [unreadCount,  setUnreadCount]  = useState(0);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Auth + profile fetch
   useEffect(() => {
     const supabase = createClient();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        if (session?.user) {
-          setLoggedIn(true);
-
-          // Fetch username + role from profiles table
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("username, role")
-            .eq("id", session.user.id)
-            .maybeSingle();
-
-          setUsername(profile?.username ?? null);
-          setRole(
-            (profile?.role as Role) ??
-            (session.user.user_metadata?.role as Role) ??
-            null
-          );
-
-          // Unread message count — placeholder, connect to real data later
-          setUnreadCount(0);
-        } else {
-          setLoggedIn(false);
-          setUsername(null);
-          setRole(null);
-          setUnreadCount(0);
-        }
+    async function syncUser(userId: string | null) {
+      if (!userId) {
+        setLoggedIn(false);
+        setUsername(null);
+        setRole(null);
+        setUnreadCount(0);
+        return;
       }
+      setLoggedIn(true);
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("username, role")
+        .eq("id", userId)
+        .maybeSingle();
+      setUsername(profile?.username ?? null);
+      setRole((profile?.role as Role) ?? null);
+    }
+
+    // Seed from the current session immediately so the navbar is correct on first paint
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      syncUser(session?.user?.id ?? null);
+    });
+
+    // Stay in sync across login / logout / token refresh on any page
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => syncUser(session?.user?.id ?? null)
     );
 
     return () => subscription.unsubscribe();
@@ -79,7 +76,6 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
   // Close dropdown on outside click or Escape
   useEffect(() => {
     if (!dropdownOpen) return;
-
     function onMouseDown(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setDropdownOpen(false);
@@ -88,7 +84,6 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") setDropdownOpen(false);
     }
-
     document.addEventListener("mousedown", onMouseDown);
     document.addEventListener("keydown", onKeyDown);
     return () => {
@@ -101,25 +96,21 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
     setDropdownOpen(false);
     const supabase = createClient();
     await supabase.auth.signOut();
+    window.location.href = "/";
   }
 
-  const avatarInitials = username
-    ? username.slice(0, 2).toUpperCase()
-    : "?";
+  const avatarInitials = username ? username.slice(0, 2).toUpperCase() : "?";
 
   return (
     <header className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-50">
       <div className={`${maxWidth} mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16`}>
 
-        {/* Logo */}
         <a href="/" className="text-2xl font-extrabold tracking-tight flex-shrink-0" style={{ color: "#185FA5" }}>
           Sponsorum
         </a>
 
-        {/* Middle nav (optional, home page only) */}
         {navLinks}
 
-        {/* Right section */}
         <div className="flex items-center gap-1.5 sm:gap-2">
           {loggedIn ? (
             <>
@@ -139,7 +130,7 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
                 )}
               </a>
 
-              {/* Balance */}
+              {/* Balance chip */}
               <div
                 className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm"
                 style={{ backgroundColor: "#E6F1FB" }}
@@ -148,7 +139,7 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
                 <span className="font-bold" style={{ color: "#042C53" }}>₺0</span>
               </div>
 
-              {/* User dropdown trigger */}
+              {/* User dropdown */}
               <div className="relative" ref={dropdownRef}>
                 <button
                   onClick={() => setDropdownOpen((v) => !v)}
@@ -171,7 +162,6 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
                   </svg>
                 </button>
 
-                {/* Dropdown panel */}
                 {dropdownOpen && (
                   <div className="absolute right-0 top-full mt-2 w-56 max-w-[calc(100vw-1.5rem)] bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
 
@@ -195,20 +185,21 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
 
                     <div className="border-t border-gray-100" />
 
-                    {/* Nav links */}
                     <div className="py-1">
-                      <DropdownLink href="/dashboard"        label="Dashboard"          icon="🏠" />
+                      <DropdownLink href="/dashboard"  label="Dashboard"    icon="🏠" />
                       {role === "yayinci" && (
-                        <DropdownLink href="/profile/complete" label="Profilimi Tamamla" icon="👤" />
+                        <>
+                          <DropdownLink href="/profile/complete" label="Profilimi Tamamla" icon="👤" />
+                          <DropdownLink href="/profile/edit"     label="Profilimi Düzenle" icon="✏️" />
+                        </>
                       )}
-                      <DropdownLink href="/offers"           label="Tekliflerim"         icon="📨" />
-                      <DropdownLink href="/messages"         label="Mesajlarım"          icon="💬" unread={unreadCount} />
-                      <DropdownLink href="/settings"         label="Ayarlar"             icon="⚙️" />
+                      <DropdownLink href="/offers"   label="Tekliflerim"  icon="📨" />
+                      <DropdownLink href="/messages" label="Mesajlarım"   icon="💬" unread={unreadCount} />
+                      <DropdownLink href="/settings" label="Ayarlar"      icon="⚙️" />
                     </div>
 
                     <div className="border-t border-gray-100" />
 
-                    {/* Sign out */}
                     <div className="py-1">
                       <button
                         onClick={handleSignOut}
