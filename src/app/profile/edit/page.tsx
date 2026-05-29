@@ -163,8 +163,10 @@ export default function ProfileEditPage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   // Navigation
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [selectedIndex,   setSelectedIndex]   = useState<number | null>(null);
+  const [confirmRemove,   setConfirmRemove]   = useState(false);
+  const [confirmReset,    setConfirmReset]    = useState(false);
+  const [resetting,       setResetting]       = useState(false);
 
   // Social accounts
   const [socialAccounts, setSocialAccounts] = useState<SocialAccount[]>([]);
@@ -193,6 +195,7 @@ export default function ProfileEditPage() {
   const [uploadingKeys,    setUploadingKeys]    = useState<Set<string>>(new Set());
   const [proofFileErrors,  setProofFileErrors]  = useState<Record<string, string>>({});
   const [proofSectionError, setProofSectionError] = useState("");
+  const [viewingKey,        setViewingKey]        = useState<string | null>(null);
 
   // ── Load existing profile ──
 
@@ -302,10 +305,55 @@ export default function ProfileEditPage() {
     );
   }
 
-  function removeSelectedAccount() {
+  async function removeSelectedAccount() {
     if (selectedIndex === null) return;
-    setSocialAccounts((prev) => prev.filter((_, i) => i !== selectedIndex));
+    const removed   = socialAccounts[selectedIndex];
+    const updated   = socialAccounts.filter((_, i) => i !== selectedIndex);
+    const remaining = new Set(updated.map((a) => a.platform));
+
+    // Null out price columns whose every required platform has been removed
+    const nulledPrices: Record<string, null> = {};
+    for (const row of PRICE_ROWS) {
+      if (row.platforms.every((p) => !remaining.has(p))) nulledPrices[row.col] = null;
+    }
+    setPrices((prev) => {
+      const next = { ...prev };
+      for (const col of Object.keys(nulledPrices)) next[col] = { price: "", days: next[col]?.days ?? 1 };
+      return next;
+    });
+
+    // Remove proof_files keys whose prefix matches the removed platform
+    const PLATFORM_PROOF_PREFIXES: Record<string, string[]> = {
+      Instagram: ["ig_"],
+      TikTok:    ["tt_"],
+      YouTube:   ["yt_"],
+      Kick:      ["kick_"],
+      Twitch:    ["twitch_", "stream_"],
+      X:         ["x_", "twitter_"],
+    };
+    const prefixes = PLATFORM_PROOF_PREFIXES[removed.platform] ?? [];
+    const updatedProofUrls = Object.fromEntries(
+      Object.entries(proofUrls).filter(([key]) => !prefixes.some((p) => key.startsWith(p)))
+    );
+    setProofUrls(updatedProofUrls);
+
+    setSocialAccounts(updated);
     openAccount(null);
+
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { error } = await supabase
+      .from("yayinci_profiles")
+      .update({
+        social_accounts: updated,
+        platforms:       [...remaining],
+        proof_files:     updatedProofUrls,
+        ...nulledPrices,
+      })
+      .eq("id", user.id);
+    if (error) console.error("[profile/edit] remove account error:", error.message);
+    else console.log("[profile/edit] removed", removed.platform, "cleared proofs:", Object.keys(proofUrls).filter(k => PROOF_DEFS.find(d => d.key === k && d.platform === removed.platform)));
   }
 
   // ── Category handlers ──
@@ -386,6 +434,21 @@ export default function ProfileEditPage() {
     setProofSectionError("");
   }
 
+  async function viewProof(key: string, storedValue: string) {
+    setViewingKey(key);
+    const supabase = createClient();
+    // Extract bare path within the "proofs" bucket — handles both full URL and bare path
+    const match = storedValue.match(/\/proofs\/(.+?)(\?|$)/);
+    const path  = match ? match[1] : storedValue;
+    const { data, error } = await supabase.storage.from("proofs").createSignedUrl(path, 3600);
+    setViewingKey(null);
+    if (error || !data?.signedUrl) {
+      console.error("[proof] signedUrl error:", error?.message);
+      return;
+    }
+    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  }
+
   function validateCurrentProofs(): boolean {
     if (selectedIndex === null) return true;
     const acc = socialAccounts[selectedIndex];
@@ -402,6 +465,41 @@ export default function ProfileEditPage() {
   async function handleSaveWithProofCheck() {
     if (!validateCurrentProofs()) return;
     await handleSave();
+  }
+
+  // ── Reset ──
+
+  async function resetProfile() {
+    setResetting(true);
+    setConfirmReset(false);
+
+    // Clear all local state
+    setSocialAccounts([]);
+    setBio("");
+    setCategories([]);
+    setProofUrls({});
+    setPrices(emptyPrices());
+    setPriceErrors({});
+    openAccount(null);
+
+    // Wipe everything in the DB
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setResetting(false); return; }
+
+    const nullPrices = Object.fromEntries(PRICE_ROWS.map((r) => [r.col, null]));
+    const { error } = await supabase.from("yayinci_profiles").update({
+      social_accounts: [],
+      platforms:       [],
+      bio:             "",
+      categories:      [],
+      proof_files:     {},
+      ...nullPrices,
+    }).eq("id", user.id);
+
+    if (error) console.error("[profile/edit] reset error:", error.message);
+    else console.log("[profile/edit] profile reset");
+    setResetting(false);
   }
 
   // ── Save ──
@@ -671,40 +769,6 @@ export default function ProfileEditPage() {
               </div>
             </Section>
 
-            {/* ── Görünürlük ── */}
-            <Section title="Görünürlük">
-              <div className="flex flex-col gap-3">
-                {VISIBILITY_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.id}
-                    onClick={() => setVisibility(opt.id)}
-                    className="flex items-start gap-4 rounded-xl border-2 p-5 text-left transition-all"
-                    style={{
-                      borderColor: visibility === opt.id ? "#185FA5" : "#E5E7EB",
-                      backgroundColor: visibility === opt.id ? "#EBF4FF" : "white",
-                    }}
-                  >
-                    <span className="text-2xl mt-0.5 flex-shrink-0">{opt.emoji}</span>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-sm font-bold" style={{ color: visibility === opt.id ? "#185FA5" : "#042C53" }}>
-                          {opt.label}
-                        </span>
-                        <span
-                          className="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0"
-                          style={{ borderColor: visibility === opt.id ? "#185FA5" : "#D1D5DB" }}
-                        >
-                          {visibility === opt.id && (
-                            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "#185FA5" }} />
-                          )}
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-500 leading-relaxed">{opt.desc}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </Section>
 
             {/* ── İstatistik Kanıtları ── */}
             <Section title="İstatistik Kanıtları">
@@ -730,7 +794,19 @@ export default function ProfileEditPage() {
                           </span>
                         )}
                       </div>
-                      <div className="mt-3">
+                      <div className="mt-3 flex flex-col gap-2">
+                        {/* Görüntüle — only shown when a file is already uploaded */}
+                        {uploaded && (
+                          <button
+                            onClick={() => viewProof(proof.key, proofUrls[proof.key])}
+                            disabled={viewingKey === proof.key}
+                            className="flex items-center justify-center gap-2 rounded-xl border-2 py-2.5 px-4 text-sm font-semibold transition-all hover:opacity-80 disabled:opacity-50"
+                            style={{ borderColor: "#185FA5", color: "#185FA5" }}
+                          >
+                            {viewingKey === proof.key ? "Açılıyor…" : "Görüntüle"}
+                          </button>
+                        )}
+                        {/* Upload / replace */}
                         <label className="cursor-pointer">
                           <input
                             type="file"
@@ -744,7 +820,7 @@ export default function ProfileEditPage() {
                             }}
                           />
                           <div
-                            className="flex items-center justify-center gap-2 rounded-xl border-2 border-dashed py-3 px-4 text-sm font-semibold transition-all"
+                            className="flex items-center justify-center gap-2 rounded-xl border-2 border-dashed py-2.5 px-4 text-sm font-semibold transition-all"
                             style={{
                               borderColor:     uploaded ? "#10B981" : "#E5E7EB",
                               backgroundColor: uploaded ? "#F0FDF4" : "white",
@@ -794,7 +870,7 @@ export default function ProfileEditPage() {
             <div className="rounded-2xl border border-red-100 bg-red-50/40 p-5">
               <h3 className="text-sm font-bold text-red-700 mb-1">Hesabı Kaldır</h3>
               <p className="text-xs text-red-400 mb-4">
-                Bu hesap profilinden kaldırılır. Kayıt ettikten sonra kalıcı olur.
+                Bu hesap profilinden kalıcı olarak kaldırılır.
               </p>
               {confirmRemove ? (
                 <div className="flex gap-2">
@@ -1024,6 +1100,38 @@ export default function ProfileEditPage() {
         >
           {saving ? "Kaydediliyor…" : "Değişiklikleri Kaydet ✓"}
         </button>
+
+        {/* Profili Sıfırla */}
+        {!confirmReset ? (
+          <button
+            onClick={() => setConfirmReset(true)}
+            disabled={resetting}
+            className="w-full rounded-2xl py-3 text-sm font-semibold text-red-500 border-2 border-red-100 hover:border-red-300 hover:bg-red-50 transition-all"
+          >
+            Profili Sıfırla
+          </button>
+        ) : (
+          <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4">
+            <p className="text-sm font-semibold text-red-700 mb-3">
+              Tüm hesaplar, fiyatlar, kanıtlar ve profil bilgileri silinecek. Emin misin?
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={resetProfile}
+                disabled={resetting}
+                className="flex-1 rounded-xl py-2.5 text-sm font-bold text-white bg-red-500 hover:bg-red-600 transition-colors disabled:opacity-60"
+              >
+                {resetting ? "Sıfırlanıyor…" : "Evet, Sıfırla"}
+              </button>
+              <button
+                onClick={() => setConfirmReset(false)}
+                className="flex-1 rounded-xl py-2.5 text-sm font-semibold text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 transition-colors"
+              >
+                İptal
+              </button>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>

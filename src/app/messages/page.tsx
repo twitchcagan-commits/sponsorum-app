@@ -45,6 +45,13 @@
           AND (offers.marka_id = auth.uid() OR offers.yayinci_id = auth.uid())
       )
     );
+  CREATE POLICY "delete own offer messages" ON messages FOR DELETE
+    USING (
+      EXISTS (
+        SELECT 1 FROM offers WHERE offers.id = messages.offer_id
+          AND (offers.marka_id = auth.uid() OR offers.yayinci_id = auth.uid())
+      )
+    );
   ALTER PUBLICATION supabase_realtime ADD TABLE messages;
 */
 
@@ -151,38 +158,85 @@ function StatusChip({ status }: { status: DbOfferStatus }) {
   );
 }
 
-function ConvItem({ conv, active, onClick }: { conv: Conversation; active: boolean; onClick: () => void }) {
+function ConvItem({
+  conv, active, onClick, onDelete,
+}: {
+  conv: Conversation;
+  active: boolean;
+  onClick: () => void;
+  onDelete: () => void;
+}) {
   const s = STATUS_CFG[conv.offerStatus] ?? STATUS_CFG.pending;
+  const [confirming, setConfirming] = useState(false);
+
   return (
-    <button
-      onClick={onClick}
-      className="w-full flex items-start gap-3 px-4 py-3.5 text-left transition-colors rounded-xl"
+    <div
+      className="relative rounded-xl group"
       style={{ backgroundColor: active ? "#EBF4FF" : "transparent" }}
       onMouseEnter={e => { if (!active) e.currentTarget.style.backgroundColor = "#F9FAFB"; }}
-      onMouseLeave={e => { if (!active) e.currentTarget.style.backgroundColor = "transparent"; }}
+      onMouseLeave={e => { if (!active) e.currentTarget.style.backgroundColor = confirming ? "#FEF2F2" : "transparent"; }}
     >
-      <Avatar name={conv.otherPartyDisplayName} />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between gap-1 mb-0.5">
-          <span className="text-sm font-bold truncate" style={{ color: active ? "#185FA5" : "#042C53" }}>
-            @{conv.otherPartyUsername}
-          </span>
-          <span className="text-xs text-gray-400 flex-shrink-0">{conv.lastTime}</span>
+      {confirming ? (
+        /* Inline delete confirmation */
+        <div className="flex items-center gap-2 px-4 py-3.5" style={{ backgroundColor: "#FEF2F2", borderRadius: "0.75rem" }}>
+          <span className="text-xs font-semibold text-red-700 flex-1">Sohbeti sil?</span>
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            className="text-xs font-bold text-white rounded-lg px-2.5 py-1 bg-red-500 hover:bg-red-600 transition-colors"
+          >
+            Evet
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); setConfirming(false); }}
+            className="text-xs font-semibold text-gray-500 rounded-lg px-2.5 py-1 bg-white border border-gray-200 hover:bg-gray-50 transition-colors"
+          >
+            İptal
+          </button>
         </div>
-        <p className="text-xs text-gray-500 truncate mb-1.5">{conv.lastMessage}</p>
-        <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1 text-xs font-medium rounded-full px-2 py-0.5" style={{ backgroundColor: s.bg, color: s.text }}>
-            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: s.dot }} />
-            {s.label}
-          </span>
-          {conv.unread > 0 && (
-            <span className="ml-auto flex-shrink-0 w-5 h-5 rounded-full text-xs font-bold text-white flex items-center justify-center" style={{ backgroundColor: "#185FA5" }}>
-              {conv.unread}
-            </span>
-          )}
+      ) : (
+        <div
+          onClick={onClick}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onClick(); }}
+          className="w-full flex items-start gap-3 px-4 py-3.5 text-left cursor-pointer"
+        >
+          <Avatar name={conv.otherPartyDisplayName} />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-1 mb-0.5">
+              <span className="text-sm font-bold truncate" style={{ color: active ? "#185FA5" : "#042C53" }}>
+                @{conv.otherPartyUsername}
+              </span>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <span className="text-xs text-gray-400">{conv.lastTime}</span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setConfirming(true); }}
+                  title="Sohbeti sil"
+                  className="opacity-0 group-hover:opacity-100 w-6 h-6 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 truncate mb-1.5">{conv.lastMessage}</p>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1 text-xs font-medium rounded-full px-2 py-0.5" style={{ backgroundColor: s.bg, color: s.text }}>
+                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: s.dot }} />
+                {s.label}
+              </span>
+              {conv.unread > 0 && (
+                <span className="ml-auto flex-shrink-0 w-5 h-5 rounded-full text-xs font-bold text-white flex items-center justify-center" style={{ backgroundColor: "#185FA5" }}>
+                  {conv.unread}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
-    </button>
+      )}
+    </div>
   );
 }
 
@@ -212,6 +266,32 @@ export default function MessagesPage() {
   useEffect(() => {
     return () => { if (pendingFile) URL.revokeObjectURL(pendingFile.previewUrl); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function deleteConversation(offerId: string) {
+    // 1. Update local state immediately
+    setConvs((prev) => prev.filter((c) => c.offerId !== offerId));
+    setMessages((prev) => { const n = { ...prev }; delete n[offerId]; return n; });
+    if (selectedOfferId === offerId) { setSelectedOfferId(null); setMobileView("list"); }
+
+    // 2. Delete from DB
+    console.log("[messages] deleting messages for offer_id:", offerId);
+    const { error, count } = await createClient()
+      .from("messages")
+      .delete({ count: "exact" })
+      .eq("offer_id", offerId);
+    if (error) {
+      console.error("[messages] delete error:", error.message, error.code, error.details);
+    } else {
+      console.log("[messages] deleted rows:", count);
+    }
+
+    const { error: offerError } = await createClient().from("offers").delete().eq("id", offerId);
+    if (offerError) {
+      console.error("[messages] offer delete error:", offerError.message);
+    } else {
+      console.log("[messages] offer deleted:", offerId);
+    }
+  }
 
   const loadConversations = useCallback(async () => {
     const supabase = createClient();
@@ -278,7 +358,19 @@ export default function MessagesPage() {
     });
 
     setConvs(convList);
-    if (convList.length > 0) setSelectedOfferId(convList[0].offerId);
+
+    // Select the offer from ?offer= param if present and valid, else default to first
+    const params = new URLSearchParams(window.location.search);
+    const offerParam = params.get("offer");
+    console.log("[messages] searchParams offer:", offerParam);
+    console.log("[messages] conversation offer IDs:", convList.map((c) => c.offerId));
+    const matched = offerParam ? convList.some((c) => c.offerId === offerParam) : false;
+    console.log("[messages] offerParam matched in list:", matched);
+    const target = matched ? offerParam! : (convList[0]?.offerId ?? null);
+    console.log("[messages] auto-selecting conversation:", target);
+    setSelectedOfferId(target);
+    if (matched) setMobileView("chat");
+
     setLoading(false);
   }, [router]);
 
@@ -446,7 +538,7 @@ export default function MessagesPage() {
                 </div>
               ) : (
                 convs.map((conv) => (
-                  <ConvItem key={conv.offerId} conv={conv} active={selectedOfferId === conv.offerId} onClick={() => selectConv(conv.offerId)} />
+                  <ConvItem key={conv.offerId} conv={conv} active={selectedOfferId === conv.offerId} onClick={() => selectConv(conv.offerId)} onDelete={() => deleteConversation(conv.offerId)} />
                 ))
               )}
             </div>

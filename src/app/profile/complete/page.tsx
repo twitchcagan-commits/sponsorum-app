@@ -66,8 +66,7 @@ const STEPS = [
   { id: 1, label: "Sosyal Medya"   },
   { id: 2, label: "Niş & Kategori" },
   { id: 3, label: "Fiyatlar"       },
-  { id: 4, label: "Görünürlük"     },
-  { id: 5, label: "Kanıtlar"       },
+  { id: 4, label: "Kanıtlar"       },
 ];
 
 const PLATFORMS = ["X", "Instagram", "TikTok", "YouTube", "Kick", "Twitch"];
@@ -693,37 +692,9 @@ export default function ProfileCompletePage() {
             </div>
           )}
 
-          {/* ── Step 4: Görünürlük ── */}
-          {step === 4 && (
-            <div>
-              <h2 className="text-xl font-extrabold mb-1" style={{ color: "#042C53" }}>Görünürlük Ayarı</h2>
-              <p className="text-sm text-gray-500 mb-7">Profilinin platformda nasıl görüneceğini seç.</p>
-              <div className="flex flex-col gap-3">
-                {VISIBILITY_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.id}
-                    onClick={() => setVisibility(opt.id)}
-                    className="flex items-start gap-4 rounded-xl border-2 p-5 text-left transition-all"
-                    style={{ borderColor: visibility === opt.id ? "#185FA5" : "#E5E7EB", backgroundColor: visibility === opt.id ? "#EBF4FF" : "white" }}
-                  >
-                    <span className="text-2xl mt-0.5 flex-shrink-0">{opt.emoji}</span>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-sm font-bold" style={{ color: visibility === opt.id ? "#185FA5" : "#042C53" }}>{opt.label}</span>
-                        <span className="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0" style={{ borderColor: visibility === opt.id ? "#185FA5" : "#D1D5DB" }}>
-                          {visibility === opt.id && <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "#185FA5" }} />}
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-500 leading-relaxed">{opt.desc}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
 
-          {/* ── Step 5: Kanıtlar ── */}
-          {step === 5 && (
+          {/* ── Step 4: Kanıtlar ── */}
+          {step === 4 && (
             <div>
               <h2 className="text-xl font-extrabold mb-1" style={{ color: "#042C53" }}>İstatistik Kanıtları</h2>
               <p className="text-sm text-gray-500 mb-2">
@@ -851,7 +822,7 @@ export default function ProfileCompletePage() {
                 ← Geri
               </button>
             )}
-            {step < 5 ? (
+            {step < 4 ? (
               <button onClick={goNext}
                 className="rounded-xl px-8 py-3 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98]"
                 style={{ backgroundColor: "#185FA5" }}

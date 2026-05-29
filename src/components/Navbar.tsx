@@ -274,10 +274,9 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
                       <DropdownLink href="/dashboard" label="Dashboard" icon="🏠" />
                       {role === "yayinci" && (
                         <>
-                          <DropdownLink href="/profile/complete" label="Profilimi Tamamla" icon="👤" />
-                          <DropdownLink href="/profile/edit"     label="Profilimi Düzenle" icon="✏️" />
-                          <DropdownLink href="/offers"           label="Tekliflerim"        icon="📨" />
-                          <DropdownLink href="/messages"         label="Mesajlarım"         icon="💬" unread={unreadCount} />
+                          <DropdownLink href="/profile/edit" label="Profilimi Düzenle" icon="✏️" />
+                          <DropdownLink href="/offers"       label="Tekliflerim"        icon="📨" />
+                          <DropdownLink href="/messages"     label="Mesajlarım"         icon="💬" unread={unreadCount} />
                         </>
                       )}
                       {role === "marka" && (

@@ -235,13 +235,13 @@ export default function OfferPage() {
       });
   }, [username]);
 
-  // Step 2: load prices from yayinci_profiles
+  // Step 2: load prices + social_accounts from yayinci_profiles
   useEffect(() => {
     if (!yayinciId) return;
     const supabase = createClient();
     supabase
       .from("yayinci_profiles")
-      .select(PRICE_COLS.join(", "))
+      .select(["social_accounts", ...PRICE_COLS].join(", "))
       .eq("id", yayinciId)
       .maybeSingle()
       .then(({ data, error }) => {
@@ -250,7 +250,27 @@ export default function OfferPage() {
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const row = data as Record<string, any>;
+
+        // Build the set of platforms the yayıncı actually has accounts for
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const activePlatforms = new Set<string>(
+          (row.social_accounts ?? []).map((a: { platform: string }) => a.platform)
+        );
+
+        // Map each content-type group to the platform(s) it requires
+        const GROUP_TO_PLATFORMS: Record<string, string[]> = {
+          "Instagram":     ["Instagram"],
+          "TikTok":        ["TikTok"],
+          "YouTube":       ["YouTube"],
+          "Kick / Twitch": ["Kick", "Twitch"],
+          "X":             ["X"],
+        };
+
         const types: LoadedContentType[] = ALL_CONTENT_TYPES.flatMap((def) => {
+          // Skip if none of the required platforms are in social_accounts
+          const required = GROUP_TO_PLATFORMS[def.group] ?? [def.group];
+          if (!required.some((p) => activePlatforms.has(p))) return [];
+
           const v = row[def.col];
           if (v === null || v === undefined) return [];
           const price = Number(v);
@@ -282,7 +302,7 @@ export default function OfferPage() {
 
     const contentType = selectedTypes.map((s) => `${s.group} ${s.label}`).join(", ");
 
-    const { error } = await supabase.from("offers").insert({
+    const { data: newOffer, error } = await supabase.from("offers").insert({
       marka_id:         user.id,
       yayinci_id:       yayinciId,
       content_type:     contentType,
@@ -293,7 +313,7 @@ export default function OfferPage() {
       deadline,
       special_requests: specialRequests.trim() || null,
       status:           "pending",
-    });
+    }).select("id").single();
 
     if (error) {
       console.error("[offer] insert error:", error);
@@ -315,7 +335,7 @@ export default function OfferPage() {
       }),
     }).catch((err) => console.error("[offer] notification error:", err));
 
-    router.push("/messages");
+    router.push(`/messages?offer=${newOffer.id}`);
   }
 
   // Group loaded types by platform for the UI

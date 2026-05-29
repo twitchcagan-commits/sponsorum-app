@@ -73,20 +73,9 @@ export default function Home() {
             Markalar ve yayıncılar anonim olarak buluşur, şeffaf fiyatlarla anlaşır.
             Ne kimliğin ifşa olur, ne de zaman kaybedersin.
           </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            {/* "Sponsor Bul" — hidden for yayinci */}
-            {role !== "yayinci" && (
-              <a
-                href="/search"
-                className="inline-flex items-center justify-center gap-2 text-base font-semibold text-white rounded-xl px-8 py-4 shadow-lg transition-all hover:shadow-xl hover:-translate-y-0.5"
-                style={{ backgroundColor: "#185FA5" }}
-              >
-                Sponsor Bul
-              </a>
-            )}
-
-            {/* Secondary CTA — role-aware */}
-            {role === "yayinci" ? (
+          {/* CTA — role-aware */}
+          {role === "yayinci" ? (
+            <div className="flex justify-center">
               <a
                 href="/profile/edit"
                 className="inline-flex items-center justify-center gap-2 text-base font-semibold rounded-xl px-8 py-4 border-2 transition-all hover:-translate-y-0.5"
@@ -94,16 +83,55 @@ export default function Home() {
               >
                 Profilimi Güncelle
               </a>
-            ) : role !== "marka" ? (
+            </div>
+          ) : role === "marka" ? (
+            <div className="flex justify-center">
               <a
-                href={loggedIn ? "/profile/complete" : "/register"}
-                className="inline-flex items-center justify-center gap-2 text-base font-semibold rounded-xl px-8 py-4 border-2 transition-all hover:-translate-y-0.5"
-                style={{ borderColor: "#185FA5", color: "#185FA5", backgroundColor: "white" }}
+                href="/search"
+                className="inline-flex items-center justify-center gap-2 text-base font-semibold text-white rounded-xl px-8 py-4 shadow-lg transition-all hover:shadow-xl hover:-translate-y-0.5"
+                style={{ backgroundColor: "#185FA5" }}
               >
-                Yayıncı Ol &amp; Para Kazan
+                Sponsor Bul
               </a>
-            ) : null}
-          </div>
+            </div>
+          ) : (
+            /* Not logged in — two role cards */
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-xl mx-auto w-full">
+
+              {/* Marka */}
+              <div className="flex flex-col items-center gap-3 rounded-2xl border-2 p-6 bg-white text-center transition-all hover:shadow-lg hover:-translate-y-1" style={{ borderColor: "#185FA5" }}>
+                <span className="text-4xl">🏢</span>
+                <div>
+                  <h3 className="text-base font-extrabold mb-1" style={{ color: "#042C53" }}>Marka mısın?</h3>
+                  <p className="text-sm text-gray-500 leading-relaxed">Doğru yayıncıyı bul, kampanyanı başlat</p>
+                </div>
+                <a
+                  href="/register?role=marka"
+                  className="w-full rounded-xl py-2.5 text-sm font-semibold text-white text-center transition-all hover:opacity-90"
+                  style={{ backgroundColor: "#185FA5" }}
+                >
+                  Marka Hesabı Oluştur
+                </a>
+              </div>
+
+              {/* Yayıncı */}
+              <div className="flex flex-col items-center gap-3 rounded-2xl border-2 p-6 bg-white text-center transition-all hover:shadow-lg hover:-translate-y-1" style={{ borderColor: "#E5E7EB" }}>
+                <span className="text-4xl">🎬</span>
+                <div>
+                  <h3 className="text-base font-extrabold mb-1" style={{ color: "#042C53" }}>Yayıncı mısın?</h3>
+                  <p className="text-sm text-gray-500 leading-relaxed">Markalardan sponsorluk teklifi al, para kazan</p>
+                </div>
+                <a
+                  href="/register?role=yayinci"
+                  className="w-full rounded-xl py-2.5 text-sm font-semibold text-center border-2 transition-all hover:bg-[#EBF4FF]"
+                  style={{ borderColor: "#185FA5", color: "#185FA5" }}
+                >
+                  Yayıncı Hesabı Oluştur
+                </a>
+              </div>
+
+            </div>
+          )}
         </div>
         {/* decorative blur */}
         <div className="absolute -top-20 -right-20 w-96 h-96 rounded-full opacity-30 blur-3xl pointer-events-none" style={{ backgroundColor: "#185FA5" }} />
@@ -240,17 +268,25 @@ export default function Home() {
       <section className="py-20 md:py-24" style={{ backgroundColor: "#E6F1FB" }}>
         <div className="max-w-3xl mx-auto px-4 text-center">
           <h2 className="text-3xl md:text-4xl font-extrabold mb-4" style={{ color: "#042C53" }}>
-            Hemen başla, ücretsiz dene.
+            {role === "yayinci"
+              ? "Profilini tamamla, markalarla buluş."
+              : role === "marka"
+                ? "Doğru yayıncıyı bul, kampanyanı başlat."
+                : "Hemen başla, ücretsiz dene."}
           </h2>
           <p className="text-gray-600 text-lg mb-8">
-            Kayıt ol, profilini oluştur ve ilk sponsorluk teklifini al.
+            {role === "yayinci"
+              ? "Profilini güçlendir ve sponsorluk tekliflerini almaya başla."
+              : role === "marka"
+                ? "Binlerce anonim yayıncı arasından markanıza uygun olanı hemen keşfet."
+                : "Kayıt ol, profilini oluştur ve ilk sponsorluk teklifini al."}
           </p>
           <a
-            href="/register"
+            href={role === "yayinci" ? "/profile/edit" : role === "marka" ? "/search" : "/register"}
             className="inline-flex items-center justify-center text-base font-semibold text-white rounded-xl px-10 py-4 shadow-lg transition-all hover:shadow-xl hover:-translate-y-0.5"
             style={{ backgroundColor: "#185FA5" }}
           >
-            Ücretsiz Hesap Oluştur →
+            {role === "yayinci" ? "Profilime Git →" : role === "marka" ? "Yayıncı Ara →" : "Ücretsiz Hesap Oluştur →"}
           </a>
         </div>
       </section>

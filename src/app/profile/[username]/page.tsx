@@ -138,11 +138,14 @@ function deriveAvgViews(accounts: SocialAccount[]): number {
   return Math.round(views.reduce((s, v) => s + v, 0) / views.length);
 }
 
-// Stored value may be a full public URL (legacy) or a bare storage path.
-// Extract the path within the "proofs" bucket either way.
+// Stored value may be a full public URL or a bare storage path.
+// createSignedUrl needs just the path within the bucket: "USER_ID/filename.jpg"
 function extractStoragePath(value: string): string {
+  // Match everything after "/proofs/" up to "?" or end of string
   const match = value.match(/\/proofs\/(.+?)(\?|$)/);
-  return match ? match[1] : value;
+  const path  = match ? match[1] : value;
+  console.log("[proof] extractStoragePath input:", value, "→ path:", path);
+  return path;
 }
 
 function fileType(path: string): "image" | "pdf" {
@@ -275,26 +278,29 @@ export default function ProfilePage() {
   const [data,      setData]      = useState<ProfileData | null>(null);
   const [loading,   setLoading]   = useState(true);
   const [notFound,  setNotFound]  = useState(false);
+  const [canView, setCanView] = useState(false);
 
   type ProofModal = { url: string; type: "image" | "pdf" };
   const [proofModal,      setProofModal]      = useState<ProofModal | null>(null);
   const [loadingProofKey, setLoadingProofKey] = useState<string | null>(null);
   const [proofModalError, setProofModalError] = useState("");
 
-  async function openProof(key: string, storedValue: string) {
+  function openProof(key: string, storedValue: string) {
     setLoadingProofKey(key);
     setProofModalError("");
     const supabase  = createClient();
     const path      = extractStoragePath(storedValue);
-    const { data: signed, error } = await supabase.storage
-      .from("proofs")
-      .createSignedUrl(path, 3600);
+    console.log("[proof] extracted path:", path, "from stored:", storedValue);
+
+    // Bucket is public — getPublicUrl is synchronous and works for any viewer
+    const { data } = supabase.storage.from("proofs").getPublicUrl(path);
+    console.log("[proof] publicUrl:", data.publicUrl);
     setLoadingProofKey(null);
-    if (error || !signed) {
-      setProofModalError("Dosya açılamadı: " + (error?.message ?? "Bilinmeyen hata"));
+    if (!data.publicUrl) {
+      setProofModalError("Dosya URL'si oluşturulamadı.");
       return;
     }
-    setProofModal({ url: signed.signedUrl, type: fileType(path) });
+    setProofModal({ url: data.publicUrl, type: fileType(path) });
   }
 
   useEffect(() => {
@@ -353,6 +359,21 @@ export default function ProfilePage() {
         minDelivery,
         proofFiles:  (yp.proof_files as Record<string, string>) ?? {},
       });
+
+      // Determine view access
+      const { data: { user: viewer } } = await supabase.auth.getUser();
+      if (viewer) {
+        if (viewer.id === profile.id) {
+          setCanView(true);
+        } else {
+          const { data: mp, error: mpErr } = await supabase
+            .from("marka_profiles").select("is_pro").eq("id", viewer.id).maybeSingle();
+          console.log("[profile] marka_profiles row:", mp, "error:", mpErr);
+          setCanView(mp?.is_pro === true);
+
+        }
+      }
+
       setLoading(false);
     })();
   }, [username]);
@@ -440,32 +461,48 @@ export default function ProfilePage() {
                 Teklif Gönder
               </button>
             </a>
-            <a href="/messages">
-              <button
-                className="rounded-xl px-5 py-3 text-sm font-semibold border-2 transition-all hover:bg-gray-50 active:scale-[0.98]"
-                style={{ borderColor: "#185FA5", color: "#185FA5" }}
-              >
-                Mesaj
-              </button>
-            </a>
           </div>
         </div>
 
         {/* ── Stats row ── */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
           {[
-            { label: "Toplam Takipçi",  value: data.followers  > 0 ? fmt(data.followers)  : "—", icon: "👥" },
-            { label: "Etkileşim Oranı", value: data.engagement > 0 ? `%${data.engagement}` : "—", icon: "📈" },
-            { label: "Ortalama İzlenme",value: data.avgViews   > 0 ? fmt(data.avgViews)   : "—", icon: "👁️" },
-            { label: "Min. Teslimat",   value: data.prices.length  ? `${data.minDelivery} gün`   : "—", icon: "⚡" },
+            { label: "Toplam Takipçi",  value: canView ? (data.followers  > 0 ? fmt(data.followers)  : "—") : "••• K", icon: "👥", blur: !canView },
+            { label: "Etkileşim Oranı", value: canView ? (data.engagement > 0 ? `%${data.engagement}` : "—") : "%••",  icon: "📈", blur: !canView },
+            { label: "Ortalama İzlenme",value: data.avgViews > 0 ? fmt(data.avgViews) : "—",                            icon: "👁️", blur: false },
+            { label: "Min. Teslimat",   value: data.prices.length ? `${data.minDelivery} gün` : "—",                    icon: "⚡", blur: false },
           ].map((s) => (
             <div key={s.label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 text-center">
               <div className="text-2xl mb-1">{s.icon}</div>
-              <div className="text-xl font-extrabold mb-0.5" style={{ color: "#042C53" }}>{s.value}</div>
+              <div className={`text-xl font-extrabold mb-0.5 ${s.blur ? "blur-sm select-none" : ""}`} style={{ color: "#042C53" }}>{s.value}</div>
               <div className="text-xs text-gray-400 font-medium">{s.label}</div>
             </div>
           ))}
         </div>
+
+        {/* ── Paywall upgrade prompt ── */}
+        {!canView && (
+          <div
+            className="rounded-2xl border-2 p-5 mb-6 flex flex-col sm:flex-row items-center gap-4"
+            style={{ borderColor: "#185FA5", backgroundColor: "#EBF4FF" }}
+          >
+            <div className="flex-1 text-center sm:text-left">
+              <p className="text-sm font-extrabold mb-1" style={{ color: "#042C53" }}>
+                🔒 Bu profili tam olarak görmek için Marka Pro gerekli
+              </p>
+              <p className="text-xs text-gray-500">
+                Fiyatlar, istatistikler ve hesap bilgilerine erişmek için Marka Pro üyeliğine geçin.
+              </p>
+            </div>
+            <a
+              href="/marka/pro"
+              className="flex-shrink-0 rounded-xl px-5 py-2.5 text-sm font-semibold text-white transition-all hover:opacity-90"
+              style={{ backgroundColor: "#185FA5" }}
+            >
+              299 ₺/ay — Marka Pro Ol
+            </a>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
@@ -476,7 +513,12 @@ export default function ProfilePage() {
             {data.prices.length > 0 && (
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
                 <h2 className="text-base font-extrabold mb-5" style={{ color: "#042C53" }}>Fiyat Listesi</h2>
-                <div className="flex flex-col gap-5">
+                {!canView && (
+                  <div className="rounded-xl border border-blue-100 px-4 py-3 text-xs text-blue-700 mb-4" style={{ backgroundColor: "#EBF4FF" }}>
+                    🔒 Fiyatları görmek için Marka Pro gerekli
+                  </div>
+                )}
+                <div className={`flex flex-col gap-5 ${!canView ? "blur-sm pointer-events-none select-none" : ""}`}>
                   {activePlatforms.map((plat) => (
                     <div key={plat}>
                       <div className="flex items-center gap-2 mb-3">
@@ -493,7 +535,7 @@ export default function ProfilePage() {
                               <p className="text-xs text-gray-400">{item.days} günde teslim</p>
                             </div>
                             <div className="text-base font-extrabold flex-shrink-0" style={{ color: "#042C53" }}>
-                              ₺{item.price.toLocaleString("tr-TR")}
+                              {canView ? `₺${item.price.toLocaleString("tr-TR")}` : "₺•••"}
                             </div>
                           </div>
                         ))}
@@ -544,11 +586,13 @@ export default function ProfilePage() {
                           <span className="text-xl">{PLATFORM_ICONS[acc.platform] ?? "🔗"}</span>
                           <div>
                             <p className="text-sm font-semibold text-gray-800">{acc.platform}</p>
-                            <p className="text-xs text-gray-400">@{acc.username}</p>
+                            <p className={`text-xs text-gray-400 ${!canView ? "blur-sm select-none" : ""}`}>
+                              {canView ? `@${acc.username}` : "@•••••"}
+                            </p>
                           </div>
                         </div>
-                        <span className="text-sm font-bold" style={{ color: "#185FA5" }}>
-                          {followers > 0 ? fmt(followers) : "—"}
+                        <span className={`text-sm font-bold ${!canView ? "blur-sm select-none" : ""}`} style={{ color: "#185FA5" }}>
+                          {canView ? (followers > 0 ? fmt(followers) : "—") : "••• K"}
                         </span>
                       </div>
                     );
@@ -559,9 +603,11 @@ export default function ProfilePage() {
 
             {/* Proof files */}
             {Object.keys(data.proofFiles).length > 0 && (() => {
-              // Group uploaded proofs by platform in display order
+              const activePlatforms = new Set(data.accounts.map((a) => a.platform));
+              // Group uploaded proofs by platform — only for platforms in current social_accounts
               const grouped = PROOF_PLATFORM_ORDER.reduce<{ platform: string; entries: { key: string; label: string; url: string }[] }[]>(
                 (acc, platform) => {
+                  if (!activePlatforms.has(platform)) return acc;
                   const entries = Object.entries(data.proofFiles)
                     .filter(([key]) => PROOF_LABELS[key]?.platform === platform)
                     .map(([key, url]) => ({ key, label: PROOF_LABELS[key]?.label ?? key, url }));

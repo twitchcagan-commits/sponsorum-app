@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 
@@ -78,6 +78,15 @@ export default function RegisterPage() {
 
   const [error, setError]   = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Pre-select role and skip to form when ?role=marka or ?role=yayinci is in the URL
+  useEffect(() => {
+    const param = new URLSearchParams(window.location.search).get("role");
+    if (param === "marka" || param === "yayinci") {
+      setSelected(param as Role);
+      setStep("form");
+    }
+  }, []);
 
   const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
 

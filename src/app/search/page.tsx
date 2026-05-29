@@ -13,6 +13,8 @@ type SocialAccount = {
   stats: Record<string, string>;
 };
 
+type AdFormat = { label: string; price: number };
+
 type Influencer = {
   id:            string;
   username:      string;
@@ -20,8 +22,8 @@ type Influencer = {
   niche:         string;
   platforms:     string[];
   followers:     number;
-  engagement:    number;
-  startingPrice: number | null;
+  adFormats:     AdFormat[];   // up to 3 non-null price entries
+  startingPrice: number | null; // kept for price-range filter
 };
 
 // ─── Filter config ────────────────────────────────────────────────────────────
@@ -73,6 +75,14 @@ function fmt(n: number): string {
   return String(n);
 }
 
+// Mask each word: keep first letter, replace rest with asterisks. "Can Yılmaz" → "C*** Y*****"
+function maskName(name: string): string {
+  return name
+    .split(" ")
+    .map((w) => (w.length <= 1 ? w : w[0] + "*".repeat(w.length - 1)))
+    .join(" ");
+}
+
 function toggle<T>(set: Set<T>, value: T): Set<T> {
   const next = new Set(set);
   next.has(value) ? next.delete(value) : next.add(value);
@@ -89,22 +99,41 @@ function deriveFollowers(accounts: SocialAccount[]): number {
   return max;
 }
 
-function deriveEngagement(accounts: SocialAccount[]): number {
-  const rates: number[] = [];
-  for (const acc of accounts) {
-    const followers = parseInt(acc.stats?.followers ?? acc.stats?.subscribers ?? "0");
-    if (!followers) continue;
-    const views = parseInt(
-      acc.stats?.avg_reels_views ??
-      acc.stats?.avg_video_views ??
-      acc.stats?.avg_views ??
-      acc.stats?.avg_viewers ??
-      "0"
-    );
-    if (views) rates.push((views / followers) * 100);
+const PRICE_COL_LABELS: Record<string, string> = {
+  price_ig_story:          "Instagram Story",
+  price_ig_reels:          "Instagram Reels",
+  price_ig_post:           "Instagram Post",
+  price_ig_highlight:      "Instagram Highlight",
+  price_ig_bio_link:       "Instagram Bio Link",
+  price_tt_video:          "TikTok Video",
+  price_tt_live:           "TikTok Canlı",
+  price_tt_profile_link:   "TikTok Profil Linki",
+  price_yt_video:          "YouTube Video",
+  price_yt_end_screen:     "YouTube End Screen",
+  price_yt_desc_link:      "YouTube Açıklama Linki",
+  price_yt_live_banner:    "YouTube Canlı Banner",
+  price_yt_overlay:        "YouTube Overlay",
+  price_stream_mention:    "Canlı Sözlü Bahis",
+  price_stream_overlay:    "Canlı Overlay",
+  price_stream_panel:      "Canlı Panel Banner",
+  price_stream_integrated: "Canlı Yayın Entegre",
+  price_tweet:             "X Tweet",
+  price_x_pinned:          "X Sabitlenmiş Tweet",
+  price_x_thread:          "X Thread",
+  price_x_bio:             "X Profil Bio",
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function deriveAdFormats(yp: Record<string, any>): AdFormat[] {
+  const formats: AdFormat[] = [];
+  for (const col of PRICE_COLS) {
+    if (formats.length >= 3) break;
+    const v = yp[col];
+    if (v === null || v === undefined) continue;
+    const n = Number(v);
+    if (!isNaN(n) && n > 0) formats.push({ label: PRICE_COL_LABELS[col] ?? col, price: n });
   }
-  if (!rates.length) return 0;
-  return parseFloat((rates.reduce((a, b) => a + b, 0) / rates.length).toFixed(1));
+  return formats;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -167,38 +196,40 @@ async function fetchInfluencers(): Promise<Influencer[]> {
 
   // 4. Merge and derive
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ypRows.map((yp: any) => {
-    const profile = profileMap[yp.id];
-    const accounts: SocialAccount[] = yp.social_accounts ?? [];
-    const categories: string[]      = yp.categories ?? [];
+  return ypRows
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .map((yp: any) => {
+      const profile = profileMap[yp.id];
+      const accounts: SocialAccount[] = yp.social_accounts ?? [];
+      const categories: string[]      = yp.categories ?? [];
 
-    // Fall back to platforms text[] column when social_accounts is absent
-    const platforms = accounts.length > 0
-      ? [...new Set(accounts.map((a) => a.platform))]
-      : (yp.platforms ?? []);
+      const platforms = accounts.length > 0
+        ? [...new Set(accounts.map((a) => a.platform))]
+        : (yp.platforms ?? []);
 
-    // Fall back to niche text column when categories is absent
-    const niche = categories[0] ?? yp.niche ?? "Diğer";
+      const niche     = categories[0] ?? yp.niche ?? "Diğer";
+      const followers = yp.followers_count ?? deriveFollowers(accounts);
 
-    // Use followers_count directly when available; derive from social_accounts otherwise
-    const followers = yp.followers_count !== null && yp.followers_count !== undefined
-      ? yp.followers_count
-      : deriveFollowers(accounts);
+      const username    = profile?.username ?? profile?.display_name?.toLowerCase().replace(/\s+/g, "") ?? yp.id.slice(0, 8);
+      const displayName = profile?.display_name ?? username;
 
-    const username    = profile?.username ?? profile?.display_name?.toLowerCase().replace(/\s+/g, "") ?? yp.id.slice(0, 8);
-    const displayName = profile?.display_name ?? username;
-
-    return {
-      id:            yp.id,
-      username,
-      displayName,
-      niche,
-      platforms,
-      followers,
-      engagement:    deriveEngagement(accounts),
-      startingPrice: deriveStartingPrice(yp),
-    };
-  });
+      return {
+        id:            yp.id,
+        username,
+        displayName,
+        niche,
+        platforms,
+        followers,
+        adFormats:     deriveAdFormats(yp),
+        startingPrice: deriveStartingPrice(yp),
+        _hasAccounts:  accounts.length > 0,
+      };
+    })
+    // Hide yayıncılar who have removed all social accounts
+    .filter((inf) => inf._hasAccounts && inf.platforms.length > 0)
+    // Drop the internal flag before returning
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    .map(({ _hasAccounts, ...inf }) => inf);
 }
 
 // ─── Sidebar section wrapper ──────────────────────────────────────────────────
@@ -214,9 +245,56 @@ function FilterSection({ title, children }: { title: string; children: React.Rea
   );
 }
 
+// ─── Lock modal ───────────────────────────────────────────────────────────────
+
+function LockModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ backgroundColor: "rgba(4,44,83,0.5)", backdropFilter: "blur(2px)" }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8 text-center">
+        <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl mx-auto mb-4" style={{ backgroundColor: "#E6F1FB" }}>
+          🔒
+        </div>
+        <h3 className="text-lg font-extrabold mb-2" style={{ color: "#042C53" }}>
+          Marka Pro Gerekli
+        </h3>
+        <p className="text-sm text-gray-500 mb-6 leading-relaxed">
+          Bu profili görmek için Marka Pro üyeliği gereklidir. Tüm yayıncı profillerine, fiyatlara ve istatistiklere erişin.
+        </p>
+        <a
+          href="/marka/pro"
+          className="block w-full rounded-xl py-3 text-sm font-semibold text-white text-center mb-3 transition-all hover:opacity-90"
+          style={{ backgroundColor: "#185FA5" }}
+        >
+          299 ₺/ay — Marka Pro Ol
+        </a>
+        <button
+          onClick={onClose}
+          className="w-full rounded-xl py-3 text-sm font-semibold text-gray-500 hover:text-gray-700 transition-colors"
+        >
+          İptal
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Influencer card ──────────────────────────────────────────────────────────
 
-function InfluencerCard({ inf }: { inf: Influencer }) {
+function InfluencerCard({
+  inf, isPro, onLocked,
+}: {
+  inf: Influencer;
+  isPro: boolean;
+  onLocked: () => void;
+}) {
+  function handleView(e: React.MouseEvent) {
+    if (!isPro) { e.preventDefault(); onLocked(); }
+  }
+
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all flex flex-col p-6 gap-4">
       {/* Avatar + name */}
@@ -228,8 +306,12 @@ function InfluencerCard({ inf }: { inf: Influencer }) {
           {NICHE_EMOJI[inf.niche] ?? "✨"}
         </div>
         <div className="min-w-0">
-          <p className="font-bold text-sm truncate" style={{ color: "#042C53" }}>@{inf.username}</p>
-          <p className="text-xs text-gray-400 truncate">{inf.displayName}</p>
+          <p className="font-bold text-sm truncate" style={{ color: "#042C53" }}>
+            {isPro ? inf.displayName : maskName(inf.displayName)}
+          </p>
+          {isPro && (
+            <p className="text-xs text-gray-400 truncate">@{inf.username}</p>
+          )}
           <span
             className="inline-block mt-1 text-xs font-semibold rounded-full px-2 py-0.5"
             style={{ backgroundColor: "#E6F1FB", color: "#185FA5" }}
@@ -250,37 +332,37 @@ function InfluencerCard({ inf }: { inf: Influencer }) {
         </div>
       )}
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-2 text-center">
-        <div className="bg-gray-50 rounded-xl py-2">
-          <p className="text-sm font-extrabold" style={{ color: "#042C53" }}>
-            {inf.followers > 0 ? fmt(inf.followers) : "—"}
-          </p>
-          <p className="text-xs text-gray-400 mt-0.5">Takipçi</p>
-        </div>
-        <div className="bg-gray-50 rounded-xl py-2">
-          <p className="text-sm font-extrabold" style={{ color: "#185FA5" }}>
-            {inf.engagement > 0 ? `%${inf.engagement}` : "—"}
-          </p>
-          <p className="text-xs text-gray-400 mt-0.5">Etkileşim</p>
-        </div>
-        <div className="bg-gray-50 rounded-xl py-2">
-          <p className="text-sm font-extrabold" style={{ color: "#042C53" }}>
-            {inf.startingPrice !== null ? `₺${inf.startingPrice.toLocaleString("tr-TR")}` : "—"}
-          </p>
-          <p className="text-xs text-gray-400 mt-0.5">Başlangıç</p>
-        </div>
+      {/* Follower count */}
+      <div className="flex items-center gap-2 px-0.5">
+        <span className="text-xs text-gray-400">Takipçi:</span>
+        <span className={`text-sm font-bold ${!isPro ? "blur-sm select-none" : ""}`} style={{ color: "#042C53" }}>
+          {isPro ? (inf.followers > 0 ? fmt(inf.followers) : "—") : "••• K"}
+        </span>
+      </div>
+
+      {/* Ad formats */}
+      <div className="flex flex-col gap-1.5">
+        {(inf.adFormats ?? []).length > 0 ? (inf.adFormats ?? []).map((f) => (
+          <div key={f.label} className="flex items-center justify-between rounded-lg px-2.5 py-1.5 bg-gray-50">
+            <span className="text-xs text-gray-600 truncate mr-2">{f.label}</span>
+            <span className={`text-xs font-bold flex-shrink-0 ${!isPro ? "blur-sm select-none" : ""}`} style={{ color: "#042C53" }}>
+              {isPro ? `₺${f.price.toLocaleString("tr-TR")}` : "₺•••"}
+            </span>
+          </div>
+        )) : (
+          <p className="text-xs text-gray-400 italic px-0.5">Fiyat belirtilmemiş</p>
+        )}
       </div>
 
       {/* CTA */}
-      <a href={`/profile/${inf.username}`} className="mt-auto">
+      <a href={`/profile/${inf.username}`} className="mt-auto" onClick={handleView}>
         <button
           className="w-full rounded-xl py-2.5 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98]"
           style={{ backgroundColor: "#185FA5" }}
           onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#042C53")}
           onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#185FA5")}
         >
-          Profili Gör
+          {isPro ? "Profili Gör" : "🔒 Profili Gör"}
         </button>
       </a>
     </div>
@@ -297,6 +379,8 @@ export default function SearchPage() {
 
   const [role,        setRole]        = useState<"yayinci" | "marka" | null>(null);
   const [roleChecked, setRoleChecked] = useState(false);
+  const [isPro,       setIsPro]       = useState(false);
+  const [lockModal,   setLockModal]   = useState(false);
 
   const [platforms,      setPlatforms]      = useState<Set<string>>(new Set());
   const [categories,     setCategories]     = useState<Set<string>>(new Set());
@@ -304,19 +388,25 @@ export default function SearchPage() {
   const [engagementRate, setEngagementRate] = useState<number | null>(null);
   const [priceRange,     setPriceRange]     = useState<{ min: number; max: number } | null>(null);
 
-  // Role check — redirect yayinci away from this page
+  // Role check — redirect yayinci, check marka pro status
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session?.user) { setRoleChecked(true); return; }
-      const metaRole = session.user.user_metadata?.role as string | undefined;
-      if (metaRole) {
-        setRole(metaRole as "yayinci" | "marka");
-        setRoleChecked(true);
-        return;
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) { setRoleChecked(true); return; }
+      const metaRole = user.user_metadata?.role as string | undefined;
+      const resolvedRole = metaRole ?? (
+        await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle()
+          .then(({ data }) => data?.role ?? null)
+      );
+      setRole(resolvedRole as "yayinci" | "marka" | null);
+      if (resolvedRole === "marka") {
+        const { data: mp, error: mpErr } = await supabase
+          .from("marka_profiles").select("is_pro").eq("id", user.id).maybeSingle();
+        console.log("[search] marka_profiles row:", mp, "error:", mpErr);
+        const pro = mp?.is_pro === true;
+        console.log("[search] isPro:", pro);
+        setIsPro(pro);
       }
-      const { data } = await supabase.from("profiles").select("role").eq("id", session.user.id).maybeSingle();
-      setRole((data?.role ?? null) as "yayinci" | "marka" | null);
       setRoleChecked(true);
     });
   }, []);
@@ -326,10 +416,22 @@ export default function SearchPage() {
   }, [role, router]);
 
   useEffect(() => {
-    fetchInfluencers().then((data) => {
-      setAllInfluencers(data);
-      setLoading(false);
-    });
+    let active = true;
+
+    function doFetch() {
+      setLoading(true);
+      fetchInfluencers().then((data) => {
+        if (active) { setAllInfluencers(data); setLoading(false); }
+      });
+    }
+
+    doFetch(); // initial load
+
+    // Re-fetch when browser restores the page from bfcache (back/forward navigation)
+    function onPageShow(e: PageTransitionEvent) { if (e.persisted) doFetch(); }
+    window.addEventListener("pageshow", onPageShow);
+
+    return () => { active = false; window.removeEventListener("pageshow", onPageShow); };
   }, []);
 
   const filtered = useMemo(() => {
@@ -507,7 +609,9 @@ export default function SearchPage() {
   } else {
     cardsContent = (
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
-        {filtered.map((inf) => <InfluencerCard key={inf.id} inf={inf} />)}
+        {filtered.map((inf) => (
+            <InfluencerCard key={inf.id} inf={inf} isPro={isPro} onLocked={() => setLockModal(true)} />
+          ))}
       </div>
     );
   }
@@ -533,6 +637,8 @@ export default function SearchPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+
+      {lockModal && <LockModal onClose={() => setLockModal(false)} />}
 
       <Navbar />
 
