@@ -39,12 +39,6 @@ const FOLLOWER_RANGES = [
   { label: "200K+",      min: 200_000, max: Infinity },
 ];
 
-const ENGAGEMENT_RATES = [
-  { label: "%2+",  min: 2  },
-  { label: "%5+",  min: 5  },
-  { label: "%10+", min: 10 },
-];
-
 const PRICE_RANGES = [
   { label: "₺750–₺2.000", min: 750,  max: 2000     },
   { label: "₺2.000–₺5.000", min: 2000, max: 5000   },
@@ -384,7 +378,6 @@ export default function SearchPage() {
   const [platforms,      setPlatforms]      = useState<Set<string>>(new Set());
   const [categories,     setCategories]     = useState<Set<string>>(new Set());
   const [followerRange,  setFollowerRange]  = useState<number | null>(null);
-  const [engagementRate, setEngagementRate] = useState<number | null>(null);
   const [priceRange,     setPriceRange]     = useState<{ min: number; max: number } | null>(null);
 
   // Role check �?redirect yayinci, check marka pro status
@@ -441,29 +434,27 @@ export default function SearchPage() {
         const range = FOLLOWER_RANGES[followerRange];
         if (inf.followers < range.min || inf.followers > range.max) return false;
       }
-      if (engagementRate !== null && inf.engagement < engagementRate) return false;
       if (priceRange !== null) {
         if (inf.startingPrice === null) return false;
         if (inf.startingPrice < priceRange.min || inf.startingPrice > priceRange.max) return false;
       }
       return true;
     });
-  }, [allInfluencers, platforms, categories, followerRange, engagementRate, priceRange]);
+  }, [allInfluencers, platforms, categories, followerRange, priceRange]);
 
   const hasFilters =
-    platforms.size > 0 || categories.size > 0 || followerRange !== null || engagementRate !== null || priceRange !== null;
+    platforms.size > 0 || categories.size > 0 || followerRange !== null || priceRange !== null;
 
   function clearAll() {
     setPlatforms(new Set());
     setCategories(new Set());
     setFollowerRange(null);
-    setEngagementRate(null);
     setPriceRange(null);
   }
 
   const activeFilterCount = [
     platforms.size > 0, categories.size > 0,
-    followerRange !== null, engagementRate !== null, priceRange !== null,
+    followerRange !== null, priceRange !== null,
   ].filter(Boolean).length;
 
   const sidebar = (
@@ -518,23 +509,6 @@ export default function SearchPage() {
                 name="follower"
                 checked={followerRange === i}
                 onChange={() => setFollowerRange(followerRange === i ? null : i)}
-                className="w-4 h-4 accent-[#185FA5] cursor-pointer"
-              />
-              <span className="text-sm text-gray-600 group-hover:text-gray-900 transition-colors">{r.label}</span>
-            </label>
-          ))}
-        </div>
-      </FilterSection>
-
-      <FilterSection title="Etkileşim Oranı">
-        <div className="flex flex-col gap-2">
-          {ENGAGEMENT_RATES.map((r) => (
-            <label key={r.label} className="flex items-center gap-2.5 cursor-pointer group">
-              <input
-                type="radio"
-                name="engagement"
-                checked={engagementRate === r.min}
-                onChange={() => setEngagementRate(engagementRate === r.min ? null : r.min)}
                 className="w-4 h-4 accent-[#185FA5] cursor-pointer"
               />
               <span className="text-sm text-gray-600 group-hover:text-gray-900 transition-colors">{r.label}</span>

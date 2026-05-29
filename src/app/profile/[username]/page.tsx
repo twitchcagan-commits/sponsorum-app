@@ -163,6 +163,34 @@ function buildPrices(yp: Record<string, any>): PriceItem[] {
   });
 }
 
+const ACCOUNT_STAT_FIELDS: Record<string, { key: string; label: string; icon: string; isFollowers?: boolean }[]> = {
+  Instagram: [
+    { key: "followers",       label: "Takipçi",                icon: "👥", isFollowers: true },
+    { key: "avg_reels_views", label: "Ort. Reels İzlenme",     icon: "📹" },
+    { key: "avg_story_views", label: "Ort. Story Görüntüleme", icon: "👁️" },
+  ],
+  TikTok: [
+    { key: "followers",       label: "Takipçi",             icon: "👥", isFollowers: true },
+    { key: "avg_video_views", label: "Ort. Video İzlenme",   icon: "📹" },
+  ],
+  YouTube: [
+    { key: "subscribers", label: "Abone",              icon: "👥", isFollowers: true },
+    { key: "avg_views",   label: "Ort. Video İzlenme",  icon: "📹" },
+  ],
+  Kick: [
+    { key: "followers",   label: "Takipçi",                    icon: "👥", isFollowers: true },
+    { key: "avg_viewers", label: "Ort. Eş Zamanlı İzleyici",   icon: "👁️" },
+  ],
+  Twitch: [
+    { key: "followers",   label: "Takipçi",                    icon: "👥", isFollowers: true },
+    { key: "avg_viewers", label: "Ort. Eş Zamanlı İzleyici",   icon: "👁️" },
+  ],
+  X: [
+    { key: "followers",       label: "Takipçi",             icon: "👥", isFollowers: true },
+    { key: "avg_impressions", label: "Ort. Tweet Gösterimi", icon: "📈" },
+  ],
+};
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function ProofModal({ url, type, onClose }: { url: string; type: "image" | "pdf"; onClose: () => void }) {
@@ -253,18 +281,6 @@ function NotFound({ username }: { username: string }) {
           </a>
         </div>
       </div>
-    </div>
-  );
-}
-
-function BarRow({ label, pct }: { label: string; pct: number }) {
-  return (
-    <div className="flex items-center gap-3">
-      <span className="text-sm text-gray-500 w-16 flex-shrink-0">{label}</span>
-      <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-        <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: "#185FA5" }} />
-      </div>
-      <span className="text-sm font-semibold w-10 text-right" style={{ color: "#042C53" }}>%{pct}</span>
     </div>
   );
 }
@@ -405,6 +421,33 @@ export default function ProfilePage() {
     .map((a) => a.platform);
   const streamLabel = streamPlatforms.length ? streamPlatforms.join(" / ") : "Kick / Twitch";
 
+  // Platform-specific stats row
+  const platformAcc      = platformParam ? data.accounts.find((a) => a.platform === platformParam) : null;
+  const platformStatDefs = platformAcc ? (ACCOUNT_STAT_FIELDS[platformAcc.platform] ?? []) : null;
+  const deliveryStat     = { label: "Min. Teslimat", value: data.prices.length ? `${data.minDelivery} gün` : "—", icon: "⚡", blur: false };
+
+  const statItems: { label: string; value: string; icon: string; blur: boolean }[] = platformStatDefs
+    ? [
+        ...platformStatDefs.map((def) => {
+          const raw    = platformAcc!.stats?.[def.key] ?? "";
+          const n      = parseInt(raw);
+          const strVal = !isNaN(n) && n > 0 ? fmt(n) : "—";
+          return {
+            label: def.label,
+            value: def.isFollowers ? (canView ? strVal : "••• K") : strVal,
+            icon:  def.icon,
+            blur:  (def.isFollowers ?? false) && !canView,
+          };
+        }),
+        deliveryStat,
+      ]
+    : [
+        { label: "Toplam Takipçi",  value: canView ? (data.followers  > 0 ? fmt(data.followers)  : "—") : "••• K", icon: "👥", blur: !canView },
+        { label: "Etkileşim Oranı", value: canView ? (data.engagement > 0 ? `%${data.engagement}` : "—") : "%••",  icon: "📈", blur: !canView },
+        { label: "Ortalama İzlenme",value: data.avgViews > 0 ? fmt(data.avgViews) : "—",                            icon: "👁️", blur: false  },
+        deliveryStat,
+      ];
+
   return (
     <div className="min-h-screen bg-gray-50">
 
@@ -473,13 +516,8 @@ export default function ProfilePage() {
         </div>
 
         {/* ── Stats row ── */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
-          {[
-            { label: "Toplam Takipçi",  value: canView ? (data.followers  > 0 ? fmt(data.followers)  : "—") : "••• K", icon: "👥", blur: !canView },
-            { label: "Etkileşim Oranı", value: canView ? (data.engagement > 0 ? `%${data.engagement}` : "—") : "%••",  icon: "📈", blur: !canView },
-            { label: "Ortalama İzlenme",value: data.avgViews > 0 ? fmt(data.avgViews) : "—",                            icon: "👁️", blur: false },
-            { label: "Min. Teslimat",   value: data.prices.length ? `${data.minDelivery} gün` : "—",                    icon: "⚡", blur: false },
-          ].map((s) => (
+        <div className={`grid grid-cols-2 ${statItems.length >= 4 ? "sm:grid-cols-4" : "sm:grid-cols-3"} gap-4 mb-8`}>
+          {statItems.map((s) => (
             <div key={s.label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 text-center">
               <div className="text-2xl mb-1">{s.icon}</div>
               <div className={`text-xl font-extrabold mb-0.5 ${s.blur ? "blur-sm select-none" : ""}`} style={{ color: "#042C53" }}>{s.value}</div>
@@ -663,40 +701,6 @@ export default function ProfilePage() {
               );
             })()}
 
-            {/* Stats per account */}
-            {data.accounts.some((a) => Object.keys(a.stats ?? {}).length > 1) && (
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-                <h2 className="text-base font-extrabold mb-4" style={{ color: "#042C53" }}>İstatistikler</h2>
-                <div className="flex flex-col gap-4">
-                  {data.accounts.map((acc) => {
-                    const statsEntries = Object.entries(acc.stats ?? {}).filter(([k]) => k !== "followers" && k !== "subscribers");
-                    if (!statsEntries.length) return null;
-                    const STAT_LABELS: Record<string, string> = {
-                      avg_reels_views: "Ort. Reels İzlenme",
-                      avg_story_views: "Ort. Story Görüntülenme",
-                      avg_video_views: "Ort. Video İzlenme",
-                      avg_views:       "Ort. İzlenme",
-                      avg_viewers:     "Ort. Eş Zamanlı İzleyici",
-                      avg_impressions: "Ort. Gösterim",
-                    };
-                    return (
-                      <div key={acc.platform}>
-                        <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">
-                          {PLATFORM_ICONS[acc.platform]} {acc.platform}
-                        </p>
-                        {statsEntries.map(([k, v]) => (
-                          <BarRow
-                            key={k}
-                            label={STAT_LABELS[k] ?? k}
-                            pct={Math.min(100, Math.round((parseInt(v) / Math.max(1, parseInt(acc.stats?.followers ?? acc.stats?.subscribers ?? "1"))) * 100))}
-                          />
-                        ))}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
           </div>
         </div>
 
