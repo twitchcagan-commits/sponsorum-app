@@ -62,18 +62,20 @@ function proofPublicUrl(value: string): string {
 
 // ─── Status config ──────────────────────────────────────────────────────────
 
-type OfferStatus = "pending" | "accepted" | "rejected" | "completed" | "disputed" | "refunded";
+type OfferStatus = "pending" | "accepted" | "delivery_confirmed" | "delivered" | "rejected" | "completed" | "disputed" | "refunded";
 
 const OFFER_STATUS: Record<OfferStatus, { label: string; bg: string; text: string }> = {
-  pending:   { label: "Beklemede",     bg: "#EBF4FF", text: "#185FA5" },
-  accepted:  { label: "Kabul Edildi",  bg: "#ECFDF5", text: "#065F46" },
-  rejected:  { label: "Reddedildi",    bg: "#FEF2F2", text: "#991B1B" },
-  completed: { label: "Tamamlandı",    bg: "#ECFDF5", text: "#047857" },
-  disputed:  { label: "Anlaşmazlık",   bg: "#FFFBEB", text: "#92400E" },
-  refunded:  { label: "İade Edildi",   bg: "#F5F3FF", text: "#6D28D9" },
+  pending:            { label: "Beklemede",                bg: "#EBF4FF", text: "#185FA5" },
+  accepted:           { label: "Kabul Edildi",             bg: "#ECFDF5", text: "#065F46" },
+  delivery_confirmed: { label: "Teslim Tarihi Belirlendi", bg: "#E3F2FD", text: "#1565C0" },
+  delivered:          { label: "Teslim Edildi",            bg: "#EDE7F6", text: "#5E35B1" },
+  rejected:           { label: "Reddedildi",               bg: "#FEF2F2", text: "#991B1B" },
+  completed:          { label: "Tamamlandı",               bg: "#ECFDF5", text: "#047857" },
+  disputed:           { label: "Anlaşmazlık",              bg: "#FFFBEB", text: "#92400E" },
+  refunded:           { label: "İade Edildi",              bg: "#F5F3FF", text: "#6D28D9" },
 };
 
-const ALL_STATUSES: OfferStatus[] = ["pending", "accepted", "rejected", "completed", "disputed", "refunded"];
+const ALL_STATUSES: OfferStatus[] = ["pending", "accepted", "delivery_confirmed", "delivered", "rejected", "completed", "disputed", "refunded"];
 
 const PROOF_LABELS: Record<string, string> = {
   ig_stats_30d: "Instagram İstatistik (30g)", ig_demographics: "Instagram Demografi", ig_reels_perf: "Instagram Reels Performans",
@@ -587,7 +589,8 @@ function DisputesSection({ api }: { api: (action: string, payload?: any) => Prom
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
-  const [threadOffer, setThreadOffer] = useState<string | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [detail, setDetail] = useState<any | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -605,6 +608,7 @@ function DisputesSection({ api }: { api: (action: string, payload?: any) => Prom
     try {
       await api("dispute_resolve", { offerId, outcome });
       setDisputes((prev) => prev.filter((d) => d.id !== offerId));
+      setDetail(null);
     } catch (e) { alert(e instanceof Error ? e.message : "Hata"); }
     setBusy(null);
   }
@@ -622,17 +626,17 @@ function DisputesSection({ api }: { api: (action: string, payload?: any) => Prom
               </tr></thead>
               <tbody className="divide-y divide-gray-50">
                 {disputes.map((d) => (
-                  <tr key={d.id} className="hover:bg-gray-50 transition-colors">
+                  <tr key={d.id} onClick={() => setDetail(d)} className="hover:bg-gray-50 transition-colors cursor-pointer">
                     <td className="px-5 py-3.5 font-mono text-xs text-gray-400">#{String(d.id).slice(0, 8)}</td>
                     <td className="px-5 py-3.5 font-semibold text-gray-800">{d.markaName}</td>
                     <td className="px-5 py-3.5 text-gray-600">@{d.yayinciUsername}</td>
                     <td className="px-5 py-3.5 font-bold" style={{ color: "#042C53" }}>{money(d.amount)}</td>
-                    <td className="px-5 py-3.5 text-gray-500 max-w-[200px] truncate">{d.disputeReason || "—"}</td>
+                    <td className="px-5 py-3.5 text-gray-500 max-w-[200px] truncate">{d.rejectionReason || d.disputeReason || "—"}</td>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-2 whitespace-nowrap">
-                        <button onClick={() => setThreadOffer(d.id)} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border transition-colors hover:bg-gray-50" style={{ borderColor: "#E6F1FB", color: "#185FA5" }}>Mesajlar</button>
-                        <button onClick={() => resolve(d.id, "marka")} disabled={busy === d.id} className="text-xs font-bold px-3 py-1.5 rounded-lg text-white transition-all hover:opacity-90 disabled:opacity-50" style={{ backgroundColor: "#6D28D9" }}>Marka Lehine</button>
-                        <button onClick={() => resolve(d.id, "yayinci")} disabled={busy === d.id} className="text-xs font-bold px-3 py-1.5 rounded-lg text-white transition-all hover:opacity-90 disabled:opacity-50" style={{ backgroundColor: "#10B981" }}>Yayıncı Lehine</button>
+                        <button onClick={(e) => { e.stopPropagation(); setDetail(d); }} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border transition-colors hover:bg-gray-50" style={{ borderColor: "#E6F1FB", color: "#185FA5" }}>İncele</button>
+                        <button onClick={(e) => { e.stopPropagation(); resolve(d.id, "marka"); }} disabled={busy === d.id} className="text-xs font-bold px-3 py-1.5 rounded-lg text-white transition-all hover:opacity-90 disabled:opacity-50" style={{ backgroundColor: "#6D28D9" }}>Marka Lehine</button>
+                        <button onClick={(e) => { e.stopPropagation(); resolve(d.id, "yayinci"); }} disabled={busy === d.id} className="text-xs font-bold px-3 py-1.5 rounded-lg text-white transition-all hover:opacity-90 disabled:opacity-50" style={{ backgroundColor: "#10B981" }}>Yayıncı Lehine</button>
                       </div>
                     </td>
                   </tr>
@@ -642,8 +646,154 @@ function DisputesSection({ api }: { api: (action: string, payload?: any) => Prom
           </div>
         )}
       </Card>
-      {threadOffer && <ThreadModal api={api} offerId={threadOffer} onClose={() => setThreadOffer(null)} />}
+      {detail && (
+        <DisputeDetailModal
+          api={api}
+          dispute={detail}
+          busy={busy === detail.id}
+          onResolve={(outcome) => resolve(detail.id, outcome)}
+          onClose={() => setDetail(null)}
+        />
+      )}
     </div>
+  );
+}
+
+// ─── Dispute timeline detail (full order history + inline thread) ─────────────
+
+function TimelineRow({ label, value, done }: { label: string; value: string; done: boolean }) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="flex flex-col items-center">
+        <span className="w-3 h-3 rounded-full mt-1 flex-shrink-0" style={{ backgroundColor: done ? "#185FA5" : "#D1D5DB" }} />
+      </div>
+      <div className="pb-3">
+        <p className="text-sm font-semibold" style={{ color: done ? "#042C53" : "#9CA3AF" }}>{label}</p>
+        <p className="text-xs text-gray-500">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function deliveryProofIsVideo(url: string): boolean {
+  return /\.(mp4|mov|webm|m4v)(\?|$)/i.test(url);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function DisputeDetailModal({ api, dispute, busy, onResolve, onClose }: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  api: (action: string, payload?: any) => Promise<any>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  dispute: any;
+  busy: boolean;
+  onResolve: (outcome: "marka" | "yayinci") => void;
+  onClose: () => void;
+}) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [thread, setThread] = useState<any[]>([]);
+  const [threadLoading, setThreadLoading] = useState(true);
+  const [showThread, setShowThread] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try { const r = await api("messages_thread", { offerId: dispute.id }); setThread(r.thread); }
+      catch { /* ignore */ }
+      setThreadLoading(false);
+    })();
+  }, [api, dispute.id]);
+
+  const proofs: string[] = dispute.deliveryProofUrls ?? [];
+
+  return (
+    <Modal title={`Anlaşmazlık #${String(dispute.id).slice(0, 8)}`} onClose={onClose} wide>
+      {/* Parties + amounts */}
+      <div className="grid grid-cols-2 gap-4 mb-5">
+        <Field label="Marka" value={`${dispute.markaName} (@${dispute.markaUsername})`} />
+        <Field label="Yayıncı" value={`${dispute.yayinciName} (@${dispute.yayinciUsername})`} />
+        <Field label="İçerik Türü" value={dispute.contentType || "—"} />
+        <Field label="Tutar" value={money(dispute.amount)} />
+        <Field label="Komisyon" value={money(dispute.platformFee)} />
+        <Field label="Toplam" value={money(dispute.total)} />
+      </div>
+
+      {dispute.brief && <div className="mb-4"><p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-1">Brifing</p><p className="text-sm text-gray-700 whitespace-pre-wrap">{dispute.brief}</p></div>}
+      {dispute.specialRequests && <div className="mb-4"><p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-1">Özel İstekler</p><p className="text-sm text-gray-700 whitespace-pre-wrap">{dispute.specialRequests}</p></div>}
+
+      {/* Timeline */}
+      <div className="border-t border-gray-100 pt-4 mb-5">
+        <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">Zaman Çizelgesi</p>
+        <TimelineRow label="Teklif oluşturuldu" value={fmtDateTime(dispute.createdAt)} done={!!dispute.createdAt} />
+        <TimelineRow label="Yayıncı kabul etti" value={fmtDateTime(dispute.acceptedAt)} done={!!dispute.acceptedAt} />
+        <TimelineRow label="Teslim tarihi belirlendi" value={fmtDateTime(dispute.deliveryDeadline)} done={!!dispute.deliveryDeadline} />
+        <TimelineRow label="İçerik teslim edildi" value={fmtDateTime(dispute.deliveryConfirmedAt)} done={!!dispute.deliveryConfirmedAt} />
+      </div>
+
+      {/* Proof files */}
+      <div className="border-t border-gray-100 pt-4 mb-5">
+        <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">Teslim Kanıtları ({proofs.length})</p>
+        {proofs.length === 0 ? <p className="text-sm text-gray-400">Kanıt dosyası yok.</p> : (
+          <div className="flex flex-wrap gap-2">
+            {proofs.map((url, i) => (
+              <a key={i} href={url} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg text-white" style={{ backgroundColor: "#5E35B1" }}>
+                {deliveryProofIsVideo(url) ? "🎬" : "🖼️"} Kanıt {i + 1} — Görüntüle
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Rejection reason from marka */}
+      {(dispute.rejectionReason || dispute.disputeReason) && (
+        <div className="rounded-xl border border-amber-100 p-4 mb-5" style={{ backgroundColor: "#FFFBEB" }}>
+          <p className="text-xs font-semibold text-amber-600 mb-1">Markanın Reddetme Gerekçesi</p>
+          <p className="text-sm text-gray-700 whitespace-pre-wrap">{dispute.rejectionReason || dispute.disputeReason}</p>
+        </div>
+      )}
+
+      {/* Inline message thread */}
+      <div className="border-t border-gray-100 pt-4 mb-5">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs font-bold uppercase tracking-widest text-gray-400">Mesaj Geçmişi</p>
+          <button onClick={() => setShowThread((v) => !v)} className="text-xs font-semibold px-2.5 py-1 rounded-lg border transition-colors hover:bg-gray-50" style={{ borderColor: "#E6F1FB", color: "#185FA5" }}>
+            {showThread ? "Gizle" : `Mesajları Göster${thread.length ? ` (${thread.length})` : ""}`}
+          </button>
+        </div>
+        {showThread && (
+          threadLoading ? <Spinner /> : thread.length === 0 ? <Empty text="Bu anlaşmada mesaj yok." /> : (
+            <div className="flex flex-col gap-3 max-h-72 overflow-y-auto pr-1">
+              {thread.map((m) => (
+                <div key={m.id} className={`flex ${m.senderRole === "marka" ? "justify-start" : "justify-end"}`}>
+                  <div className="max-w-[75%]">
+                    <p className={`text-xs text-gray-400 mb-1 ${m.senderRole === "marka" ? "text-left" : "text-right"}`}>
+                      {m.senderRole === "marka" ? "🏢" : "🎙️"} @{m.senderUsername} · {fmtDateTime(m.createdAt)}
+                    </p>
+                    <div className="px-4 py-2.5 rounded-2xl text-sm" style={m.senderRole === "marka" ? { backgroundColor: "#F3F4F6", color: "#111827" } : { backgroundColor: "#185FA5", color: "white" }}>
+                      {m.content && <p className="whitespace-pre-wrap">{m.content}</p>}
+                      {m.fileUrl && m.fileType === "image" && <img src={m.fileUrl} alt="" className="rounded-lg mt-1 max-h-60" />}
+                      {m.fileUrl && m.fileType === "video" && <video src={m.fileUrl} controls className="rounded-lg mt-1 max-h-60" />}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        )}
+      </div>
+
+      {/* Decision */}
+      <div className="border-t border-gray-100 pt-4">
+        <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">Karar</p>
+        <div className="flex items-center gap-3">
+          <button onClick={() => onResolve("marka")} disabled={busy} className="flex-1 text-sm font-bold px-3 py-2.5 rounded-lg text-white transition-all hover:opacity-90 disabled:opacity-50" style={{ backgroundColor: "#6D28D9" }}>
+            Marka Lehine (İade)
+          </button>
+          <button onClick={() => onResolve("yayinci")} disabled={busy} className="flex-1 text-sm font-bold px-3 py-2.5 rounded-lg text-white transition-all hover:opacity-90 disabled:opacity-50" style={{ backgroundColor: "#10B981" }}>
+            Yayıncı Lehine (Tamamlandı)
+          </button>
+        </div>
+        {busy && <p className="text-xs text-gray-400 mt-2">Kaydediliyor…</p>}
+      </div>
+    </Modal>
   );
 }
 

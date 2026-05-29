@@ -202,7 +202,7 @@ async function handleVerifyAction(admin: ReturnType<typeof adminClient>, payload
 async function handleOffers(admin: ReturnType<typeof adminClient>) {
   const { data: offers } = await admin
     .from("offers")
-    .select("id, marka_id, yayinci_id, content_type, amount, platform_fee, total, status, created_at, brief, special_requests, deadline, dispute_reason")
+    .select("id, marka_id, yayinci_id, content_type, amount, platform_fee, total, status, created_at, brief, special_requests, deadline, dispute_reason, accepted_at, delivery_deadline, delivery_confirmed_at, delivery_proof_urls, rejection_reason")
     .order("created_at", { ascending: false });
 
   const offerRows = (offers ?? []) as Row[];
@@ -233,6 +233,11 @@ async function handleOffers(admin: ReturnType<typeof adminClient>) {
     brief: o.brief ?? "",
     specialRequests: o.special_requests ?? "",
     disputeReason: o.dispute_reason ?? "",
+    acceptedAt: o.accepted_at ?? null,
+    deliveryDeadline: o.delivery_deadline ?? null,
+    deliveryConfirmedAt: o.delivery_confirmed_at ?? null,
+    deliveryProofUrls: Array.isArray(o.delivery_proof_urls) ? o.delivery_proof_urls : [],
+    rejectionReason: o.rejection_reason ?? "",
   }));
 
   return { offers: list };
