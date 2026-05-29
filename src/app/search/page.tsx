@@ -1,5 +1,5 @@
 "use client";
-// Search page — yayinci discovery with platform/niche/follower filters
+// Search page �?yayinci discovery with platform/niche/follower filters
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
@@ -32,9 +32,9 @@ const PLATFORMS  = ["X", "Instagram", "TikTok", "YouTube", "Kick", "Twitch"];
 const CATEGORIES = ["Oyun", "Futbol", "Mizah", "Influencer", "Müzik", "Diğer"];
 
 const FOLLOWER_RANGES = [
-  { label: "1K – 10K",   min: 1_000,   max: 10_000  },
-  { label: "10K – 50K",  min: 10_000,  max: 50_000  },
-  { label: "50K – 200K", min: 50_000,  max: 200_000 },
+  { label: "1K �?10K",   min: 1_000,   max: 10_000  },
+  { label: "10K �?50K",  min: 10_000,  max: 50_000  },
+  { label: "50K �?200K", min: 50_000,  max: 200_000 },
   { label: "200K+",      min: 200_000, max: Infinity },
 ];
 
@@ -45,9 +45,9 @@ const ENGAGEMENT_RATES = [
 ];
 
 const PRICE_RANGES = [
-  { label: "₺750 – ₺2.000", min: 750,  max: 2000     },
-  { label: "₺2.000 – ₺5.000", min: 2000, max: 5000   },
-  { label: "₺5.000+",        min: 5000, max: Infinity },
+  { label: "�?50 �?�?.000", min: 750,  max: 2000     },
+  { label: "�?.000 �?�?.000", min: 2000, max: 5000   },
+  { label: "�?.000+",        min: 5000, max: Infinity },
 ];
 
 // All price columns on yayinci_profiles
@@ -60,11 +60,11 @@ const PRICE_COLS = [
 ] as const;
 
 const NICHE_EMOJI: Record<string, string> = {
-  Oyun: "🎮", Futbol: "⚽", Mizah: "😂", Influencer: "🌟", Müzik: "🎤", Diğer: "✨",
+  Oyun: "🎮", Futbol: "�?, Mizah: "😂", Influencer: "🌟", Müzik: "🎤", Diğer: "�?,
 };
 
 const PLATFORM_ICONS: Record<string, string> = {
-  X: "𝕏", Instagram: "📸", TikTok: "🎵", YouTube: "▶", Kick: "🟢", Twitch: "💜",
+  X: "𝕏", Instagram: "📸", TikTok: "🎵", YouTube: "�?, Kick: "🟢", Twitch: "💜",
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -75,7 +75,7 @@ function fmt(n: number): string {
   return String(n);
 }
 
-// Mask each word: keep first letter, replace rest with asterisks. "Can Yılmaz" → "C*** Y*****"
+// Mask each word: keep first letter, replace rest with asterisks. "Can Yılmaz" �?"C*** Y*****"
 function maskName(name: string): string {
   return name
     .split(" ")
@@ -226,7 +226,7 @@ async function fetchInfluencers(): Promise<Influencer[]> {
       };
     })
     // Hide yayıncılar who have removed all social accounts
-    .filter((inf) => inf._hasAccounts && inf.platforms.length > 0)
+    .filter((inf: any) => inf._hasAccounts && inf.platforms.length > 0)
     // Drop the internal flag before returning
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     .map(({ _hasAccounts, ...inf }) => inf);
@@ -269,7 +269,7 @@ function LockModal({ onClose }: { onClose: () => void }) {
           className="block w-full rounded-xl py-3 text-sm font-semibold text-white text-center mb-3 transition-all hover:opacity-90"
           style={{ backgroundColor: "#185FA5" }}
         >
-          299 ₺/ay — Marka Pro Ol
+          299 �?ay �?Marka Pro Ol
         </a>
         <button
           onClick={onClose}
@@ -303,7 +303,7 @@ function InfluencerCard({
           className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0"
           style={{ backgroundColor: "#E6F1FB" }}
         >
-          {NICHE_EMOJI[inf.niche] ?? "✨"}
+          {NICHE_EMOJI[inf.niche] ?? "�?}
         </div>
         <div className="min-w-0">
           <p className="font-bold text-sm truncate" style={{ color: "#042C53" }}>
@@ -336,7 +336,7 @@ function InfluencerCard({
       <div className="flex items-center gap-2 px-0.5">
         <span className="text-xs text-gray-400">Takipçi:</span>
         <span className={`text-sm font-bold ${!isPro ? "blur-sm select-none" : ""}`} style={{ color: "#042C53" }}>
-          {isPro ? (inf.followers > 0 ? fmt(inf.followers) : "—") : "••• K"}
+          {isPro ? (inf.followers > 0 ? fmt(inf.followers) : "�?) : "••�?K"}
         </span>
       </div>
 
@@ -346,7 +346,7 @@ function InfluencerCard({
           <div key={f.label} className="flex items-center justify-between rounded-lg px-2.5 py-1.5 bg-gray-50">
             <span className="text-xs text-gray-600 truncate mr-2">{f.label}</span>
             <span className={`text-xs font-bold flex-shrink-0 ${!isPro ? "blur-sm select-none" : ""}`} style={{ color: "#042C53" }}>
-              {isPro ? `₺${f.price.toLocaleString("tr-TR")}` : "₺•••"}
+              {isPro ? `�?{f.price.toLocaleString("tr-TR")}` : "₺••�?}
             </span>
           </div>
         )) : (
@@ -388,7 +388,7 @@ export default function SearchPage() {
   const [engagementRate, setEngagementRate] = useState<number | null>(null);
   const [priceRange,     setPriceRange]     = useState<{ min: number; max: number } | null>(null);
 
-  // Role check — redirect yayinci, check marka pro status
+  // Role check �?redirect yayinci, check marka pro status
   useEffect(() => {
     const supabase = createClient();
     supabase.auth.getUser().then(async ({ data: { user } }) => {
@@ -435,7 +435,7 @@ export default function SearchPage() {
   }, []);
 
   const filtered = useMemo(() => {
-    return allInfluencers.filter((inf) => {
+    return allInfluencers.filter((inf: any) => {
       if (platforms.size > 0 && !inf.platforms.some((p) => platforms.has(p))) return false;
       if (categories.size > 0 && !categories.has(inf.niche)) return false;
       if (followerRange !== null) {
@@ -616,7 +616,7 @@ export default function SearchPage() {
     );
   }
 
-  // Block yayinci — show message while redirect fires
+  // Block yayinci �?show message while redirect fires
   if (roleChecked && role === "yayinci") {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -626,10 +626,9 @@ export default function SearchPage() {
           <h2 className="text-xl font-extrabold mb-2" style={{ color: "#042C53" }}>
             Bu sayfa markalar içindir
           </h2>
-          <p className="text-sm text-gray-500 mb-6">Dashboard&apos;a yönlendiriliyorsunuz…</p>
+          <p className="text-sm text-gray-500 mb-6">Dashboard&apos;a yönlendiriliyorsunuz�?/p>
           <a href="/dashboard" className="text-sm font-semibold hover:underline" style={{ color: "#185FA5" }}>
-            Dashboard&apos;a Git →
-          </a>
+            Dashboard&apos;a Git �?          </a>
         </div>
       </div>
     );
@@ -649,7 +648,7 @@ export default function SearchPage() {
           <div>
             <h1 className="text-2xl font-extrabold" style={{ color: "#042C53" }}>Yayıncı Bul</h1>
             <p className="text-sm text-gray-500 mt-0.5">
-              {loading ? "Yükleniyor…" : `${filtered.length} yayıncı bulundu`}
+              {loading ? "Yükleniyor�? : `${filtered.length} yayıncı bulundu`}
             </p>
           </div>
           <button
