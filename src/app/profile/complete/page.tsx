@@ -259,7 +259,8 @@ export default function ProfileCompletePage() {
   const [prices, setPrices] = useState<Record<string, PriceEntry>>(
     Object.fromEntries(PRICE_ROWS.map((r) => [r.col, { price: "", days: r.defaultDays }]))
   );
-  const [priceErrors, setPriceErrors] = useState<Record<string, string>>({});
+  const [priceErrors,      setPriceErrors]      = useState<Record<string, string>>({});
+  const [priceGlobalError, setPriceGlobalError] = useState("");
 
   // ── Step 4 state ──
   const [visibility, setVisibility] = useState<Visibility>("acik");
@@ -326,19 +327,29 @@ export default function ProfileCompletePage() {
 
   function setPrice(col: string, field: "price" | "days", val: string | number) {
     setPrices((prev) => ({ ...prev, [col]: { ...prev[col], [field]: val } }));
-    if (field === "price") setPriceErrors((prev) => ({ ...prev, [col]: "" }));
+    if (field === "price") {
+      setPriceErrors((prev) => ({ ...prev, [col]: "" }));
+      if (val) setPriceGlobalError("");
+    }
   }
 
   function validatePrices(): boolean {
     const errs: Record<string, string> = {};
+    let anyFilled = false;
     for (const row of visiblePriceRows) {
       const raw = prices[row.col].price;
       if (!raw) continue;
+      anyFilled = true;
       const n = parseFloat(raw);
       if (isNaN(n) || n < MIN_PRICE)
-        errs[row.col] = `Minimum ₺${MIN_PRICE.toLocaleString("tr-TR")} olmalıdır.`;
+        errs[row.col] = "Minimum fiyat 750 ₺ olmalıdır";
     }
     setPriceErrors(errs);
+    if (!anyFilled && visiblePriceRows.length > 0) {
+      setPriceGlobalError("En az bir fiyat girmelisiniz");
+      return false;
+    }
+    setPriceGlobalError("");
     return Object.keys(errs).length === 0;
   }
 
@@ -675,6 +686,9 @@ export default function ProfileCompletePage() {
                     </div>
                   ))}
                 </div>
+              )}
+              {priceGlobalError && (
+                <p className="text-sm text-red-600 mt-4 font-medium">{priceGlobalError}</p>
               )}
             </div>
           )}
