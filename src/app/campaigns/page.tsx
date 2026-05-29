@@ -370,7 +370,7 @@ export default function CampaignsPage() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10">
         {/* Title */}
         <div className="mb-7">
-          <h1 className="text-2xl font-extrabold mb-1" style={{ color: "#042C53" }}>Kampanyalarım</h1>
+          <h1 className="text-2xl font-extrabold mb-1" style={{ color: "#042C53" }}>Siparişlerim</h1>
           <p className="text-sm text-gray-500">Yayıncılara gönderdiğin tüm siparişleri buradan takip et ve teslimatları onayla.</p>
         </div>
 

@@ -180,7 +180,7 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
       ) : (
         <>
           <a href="/search"    className="text-gray-600 hover:text-[#185FA5] transition-colors">Sponsor Bul</a>
-          <a href="/campaigns" className="text-gray-600 hover:text-[#185FA5] transition-colors">Kampanyalarım</a>
+          <a href="/campaigns" className="text-gray-600 hover:text-[#185FA5] transition-colors">Siparişlerim</a>
           <a href="/payments"  className="text-gray-600 hover:text-[#185FA5] transition-colors">Ödemeler</a>
         </>
       )}
@@ -283,7 +283,7 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
                         <>
                           <DropdownLink href="/marka/edit" label="Profilimi Düzenle" icon="✏️" />
                           <DropdownLink href="/search"     label="Sponsor Bul"       icon="🔍" />
-                          <DropdownLink href="/campaigns"  label="Kampanyalarım"     icon="📊" />
+                          <DropdownLink href="/campaigns"  label="Siparişlerim"      icon="📊" />
                           <DropdownLink href="/payments"   label="Ödemeler"          icon="💳" />
                           <DropdownLink href="/messages"   label="Mesajlarım"        icon="💬" unread={unreadCount} />
                         </>

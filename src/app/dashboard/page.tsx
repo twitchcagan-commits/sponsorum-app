@@ -45,9 +45,9 @@ const MARKA_CARDS = [
   },
   {
     icon: "📊",
-    title: "Kampanyalarım",
-    desc: "Aktif ve tamamlanan kampanyalarını yönet, performansı takip et.",
-    cta: "Kampanyalara Git →",
+    title: "Siparişlerim",
+    desc: "Aktif ve tamamlanan siparişlerini yönet, teslimatları onayla.",
+    cta: "Siparişlere Git →",
     href: "/campaigns",
     accent: "#185FA5",
   },

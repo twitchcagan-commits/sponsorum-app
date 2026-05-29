@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { sendEmail } from "@/lib/email";
 
 /*
   ──────────────────────────────────────────────────────────────────────────────
@@ -256,6 +257,90 @@ async function handleDisputeResolve(admin: ReturnType<typeof adminClient>, paylo
   const status = outcome === "marka" ? "refunded" : "completed";
   const { error } = await admin.from("offers").update({ status }).eq("id", offerId);
   if (error) throw new Error(error.message);
+
+  // Send outcome emails to both parties (best-effort — never block the resolution).
+  try {
+    const { data: offer } = await admin
+      .from("offers")
+      .select("marka_id, yayinci_id, content_type, amount")
+      .eq("id", offerId)
+      .maybeSingle();
+
+    if (offer) {
+      const [{ data: markaAuth }, { data: yayinciAuth }] = await Promise.all([
+        admin.auth.admin.getUserById(offer.marka_id),
+        admin.auth.admin.getUserById(offer.yayinci_id),
+      ]);
+      const markaEmail   = markaAuth.user?.email;
+      const yayinciEmail = yayinciAuth.user?.email;
+      const contentType  = offer.content_type ?? "İçerik";
+      const appUrl       = process.env.NEXT_PUBLIC_APP_URL ?? "https://sponsorum.com";
+
+      const infoBlock = `
+        <div class="info">
+          <div class="row"><span class="lbl">İçerik Türü</span><span class="val">${contentType}</span></div>
+        </div>`;
+
+      const tasks: Promise<unknown>[] = [];
+
+      if (outcome === "marka") {
+        // Marka lehine → marka receives refund, yayıncı notified of loss.
+        if (markaEmail) {
+          tasks.push(sendEmail({
+            to: markaEmail,
+            subject: "Anlaşmazlık Sonuçlandı — İade Onaylandı ↩️ - Sponsorum",
+            html: `
+              <h2>Anlaşmazlık incelendi — iade onaylandı ↩️</h2>
+              <p>Sponsorum ekibi anlaşmazlığı inceledi ve <strong>marka lehinize</strong> karar verdi. Tutar hesabınıza iade edildi.</p>
+              ${infoBlock}
+              <a class="btn" href="${appUrl}/campaigns">Siparişlerime Git →</a>`,
+          }));
+        }
+        if (yayinciEmail) {
+          tasks.push(sendEmail({
+            to: yayinciEmail,
+            subject: "Anlaşmazlık Sonuçlandı — Marka Lehine Karar Verildi ⚖️ - Sponsorum",
+            html: `
+              <h2>Anlaşmazlık incelendi — marka lehine karar verildi ⚖️</h2>
+              <p>Sponsorum ekibi anlaşmazlığı inceledi ve bu sefer marka lehine karar verdi. Tutar markaya iade edildi.</p>
+              ${infoBlock}
+              <p>Daha iyi sonuçlar için brifing gereksinimlerini eksiksiz karşıladığınızdan emin olun.</p>
+              <a class="btn" href="${appUrl}/offers">Tekliflerime Git →</a>`,
+          }));
+        }
+      } else {
+        // Yayıncı lehine → yayıncı payment released, marka notified.
+        if (yayinciEmail) {
+          tasks.push(sendEmail({
+            to: yayinciEmail,
+            subject: "Anlaşmazlık Sonuçlandı — Ödemeniz Serbest Bırakıldı 🎉 - Sponsorum",
+            html: `
+              <h2>Anlaşmazlık incelendi — ödemeniz serbest bırakıldı 🎉</h2>
+              <p>Sponsorum ekibi anlaşmazlığı inceledi ve <strong>lehinize</strong> karar verdi. Ödemeniz bakiyenize eklendi.</p>
+              ${infoBlock}
+              <a class="btn" href="${appUrl}/earnings">Kazançlarıma Git →</a>`,
+          }));
+        }
+        if (markaEmail) {
+          tasks.push(sendEmail({
+            to: markaEmail,
+            subject: "Anlaşmazlık Sonuçlandı — Yayıncı Lehine Karar Verildi ⚖️ - Sponsorum",
+            html: `
+              <h2>Anlaşmazlık incelendi — yayıncı lehine karar verildi ⚖️</h2>
+              <p>Sponsorum ekibi anlaşmazlığı inceledi ve yayıncı lehine karar verdi. Ödeme yayıncıya aktarıldı.</p>
+              ${infoBlock}
+              <a class="btn" href="${appUrl}/campaigns">Siparişlerime Git →</a>`,
+          }));
+        }
+      }
+
+      await Promise.allSettled(tasks);
+    }
+  } catch (emailErr) {
+    console.error("[dispute_resolve] email error:", emailErr);
+    // Email failure must not roll back the already-committed status update.
+  }
+
   return { ok: true };
 }
 
