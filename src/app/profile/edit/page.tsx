@@ -93,6 +93,17 @@ type SocialAccount = { platform: string; username: string; stats: Record<string,
 type PriceEntry    = { price: string; days: number };
 type Visibility    = "acik" | "kapali" | "gizli";
 
+// ─── Platform colors ──────────────────────────────────────────────────────────
+
+const PLATFORM_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  Instagram: { bg: "#FFF0F9", text: "#C026D3", border: "#F0ABFC" },
+  TikTok:    { bg: "#F0F0F0", text: "#111111", border: "#D1D5DB" },
+  YouTube:   { bg: "#FFF0F0", text: "#DC2626", border: "#FECACA" },
+  Kick:      { bg: "#F0FFF4", text: "#16A34A", border: "#86EFAC" },
+  Twitch:    { bg: "#F5F0FF", text: "#7C3AED", border: "#C4B5FD" },
+  X:         { bg: "#F0F4FF", text: "#1D4ED8", border: "#BFDBFE" },
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmt(val: string): string {
@@ -133,11 +144,15 @@ export default function ProfileEditPage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   // Social accounts
-  const [socialAccounts, setSocialAccounts] = useState<SocialAccount[]>([]);
-  const [selPlatform,    setSelPlatform]    = useState("Instagram");
-  const [selUsername,    setSelUsername]    = useState("");
-  const [selStats,       setSelStats]       = useState<Record<string, string>>({});
-  const [addError,       setAddError]       = useState("");
+  const [socialAccounts,    setSocialAccounts]    = useState<SocialAccount[]>([]);
+  const [selPlatform,       setSelPlatform]       = useState("Instagram");
+  const [selUsername,       setSelUsername]       = useState("");
+  const [selStats,          setSelStats]          = useState<Record<string, string>>({});
+  const [addError,          setAddError]          = useState("");
+  const [modalOpen,         setModalOpen]         = useState(false);
+  const [editingIndex,      setEditingIndex]      = useState<number | null>(null);
+  const [editDraft,         setEditDraft]         = useState<SocialAccount | null>(null);
+  const [confirmRemoveIdx,  setConfirmRemoveIdx]  = useState<number | null>(null);
 
   // Bio & categories
   const [categories, setCategories] = useState<string[]>([]);
@@ -217,6 +232,20 @@ export default function ProfileEditPage() {
 
   // ── Social account handlers ──
 
+  function openModal() {
+    const available = PLATFORMS.filter((p) => !socialAccounts.some((a) => a.platform === p));
+    setSelPlatform(available[0] ?? "Instagram");
+    setSelUsername("");
+    setSelStats({});
+    setAddError("");
+    setModalOpen(true);
+  }
+
+  function closeModal() {
+    setModalOpen(false);
+    setAddError("");
+  }
+
   function addAccount() {
     setAddError("");
     if (!selUsername.trim()) { setAddError("Kullanıcı adı boş olamaz."); return; }
@@ -227,12 +256,34 @@ export default function ProfileEditPage() {
       ...prev,
       { platform: selPlatform, username: selUsername.trim(), stats: { ...selStats } },
     ]);
-    setSelUsername("");
-    setSelStats({});
+    closeModal();
+  }
+
+  function startEdit(i: number) {
+    setEditingIndex(i);
+    setEditDraft({ ...socialAccounts[i], stats: { ...socialAccounts[i].stats } });
+    setConfirmRemoveIdx(null);
+  }
+
+  function cancelEdit() {
+    setEditingIndex(null);
+    setEditDraft(null);
+  }
+
+  function saveEdit() {
+    if (!editDraft || editingIndex === null) return;
+    if (!editDraft.username.trim()) return;
+    setSocialAccounts((prev) =>
+      prev.map((a, i) => (i === editingIndex ? { ...editDraft, username: editDraft.username.trim() } : a))
+    );
+    setEditingIndex(null);
+    setEditDraft(null);
   }
 
   function removeAccount(i: number) {
     setSocialAccounts((prev) => prev.filter((_, idx) => idx !== i));
+    setConfirmRemoveIdx(null);
+    if (editingIndex === i) { setEditingIndex(null); setEditDraft(null); }
   }
 
   // ── Category handlers ──
@@ -344,6 +395,93 @@ export default function ProfileEditPage() {
     <div className="min-h-screen bg-gray-50">
       <Navbar />
 
+      {/* ── Add platform modal ── */}
+      {modalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: "rgba(4,44,83,0.45)", backdropFilter: "blur(2px)" }}
+          onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+              <h3 className="text-base font-extrabold" style={{ color: "#042C53" }}>
+                Yeni Platform Ekle
+              </h3>
+              <button
+                onClick={closeModal}
+                className="text-gray-400 hover:text-gray-600 transition-colors text-2xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Modal body */}
+            <div className="px-6 py-5">
+              <div className="mb-4">
+                <label className="block text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">Platform</label>
+                <select
+                  value={selPlatform}
+                  onChange={(e) => { setSelPlatform(e.target.value); setSelStats({}); setAddError(""); }}
+                  className={inputCls}
+                >
+                  {PLATFORMS.filter((p) => !socialAccounts.some((a) => a.platform === p)).map((p) => (
+                    <option key={p} value={p}>{PLATFORM_ICONS[p]} {p}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">Kullanıcı Adı</label>
+                <input
+                  type="text"
+                  placeholder="Kullanıcı adın (@ olmadan)"
+                  value={selUsername}
+                  onChange={(e) => setSelUsername(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addAccount())}
+                  className={inputCls}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                {PLATFORM_STAT_FIELDS[selPlatform].map((field) => (
+                  <div key={field.key}>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1.5">{field.label}</label>
+                    <input
+                      type="number"
+                      min={0}
+                      placeholder={field.placeholder}
+                      value={selStats[field.key] ?? ""}
+                      onChange={(e) => setSelStats((prev) => ({ ...prev, [field.key]: e.target.value }))}
+                      className={inputCls}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {addError && <p className="text-xs text-red-600 mb-3">{addError}</p>}
+            </div>
+
+            {/* Modal footer */}
+            <div className="flex gap-3 px-6 pb-6">
+              <button
+                onClick={addAccount}
+                className="flex-1 rounded-xl py-3 text-sm font-semibold text-white transition-all hover:opacity-90"
+                style={{ backgroundColor: "#185FA5" }}
+              >
+                Hesap Ekle
+              </button>
+              <button
+                onClick={closeModal}
+                className="flex-1 rounded-xl py-3 text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-all"
+              >
+                İptal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-10">
 
         {/* Page header */}
@@ -414,97 +552,181 @@ export default function ProfileEditPage() {
 
           {/* ── Sosyal Medya Hesapları ── */}
           <Section title="Sosyal Medya Hesapları">
-            {/* Add account form */}
-            <div className="rounded-xl border border-gray-200 p-5 mb-4">
-              <div className="flex gap-2 mb-4">
-                <select
-                  value={selPlatform}
-                  onChange={(e) => { setSelPlatform(e.target.value); setSelStats({}); setAddError(""); }}
-                  className="rounded-xl border border-gray-200 px-3 py-3 text-sm outline-none focus:border-[#185FA5] focus:ring-2 focus:ring-[#185FA5]/20 bg-white flex-shrink-0"
-                >
-                  {PLATFORMS.map((p) => (
-                    <option key={p} value={p}>{PLATFORM_ICONS[p]} {p}</option>
-                  ))}
-                </select>
-                <input
-                  type="text"
-                  placeholder="Kullanıcı adın (@ olmadan)"
-                  value={selUsername}
-                  onChange={(e) => setSelUsername(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addAccount())}
-                  className={inputCls + " flex-1"}
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-                {PLATFORM_STAT_FIELDS[selPlatform].map((field) => (
-                  <div key={field.key}>
-                    <label className="block text-xs font-semibold text-gray-500 mb-1.5">{field.label}</label>
-                    <input
-                      type="number"
-                      min={0}
-                      placeholder={field.placeholder}
-                      value={selStats[field.key] ?? ""}
-                      onChange={(e) => setSelStats((prev) => ({ ...prev, [field.key]: e.target.value }))}
-                      className={inputCls}
-                    />
-                  </div>
-                ))}
-              </div>
-
-              {addError && <p className="text-xs text-red-600 mb-3">{addError}</p>}
-
+            {/* Top action */}
+            <div className="flex items-center justify-between mb-5">
+              <p className="text-sm text-gray-500">
+                {socialAccounts.length > 0
+                  ? `${socialAccounts.length} hesap bağlı`
+                  : "Henüz hesap eklenmedi"}
+              </p>
               <button
-                onClick={addAccount}
-                className="w-full rounded-xl py-2.5 text-sm font-semibold text-white transition-all hover:opacity-90"
+                onClick={openModal}
+                className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98]"
                 style={{ backgroundColor: "#185FA5" }}
               >
-                + Hesap Ekle
+                <span className="text-base leading-none">+</span>
+                Yeni Platform Ekle
               </button>
             </div>
 
-            {/* Existing accounts */}
+            {/* Account cards */}
             {socialAccounts.length > 0 ? (
               <div className="flex flex-col gap-3">
                 {socialAccounts.map((acc, i) => {
-                  const fields = PLATFORM_STAT_FIELDS[acc.platform] ?? [];
+                  const fields   = PLATFORM_STAT_FIELDS[acc.platform] ?? [];
+                  const colors   = PLATFORM_COLORS[acc.platform] ?? { bg: "#F9FAFB", text: "#374151", border: "#E5E7EB" };
+                  const isEditing = editingIndex === i;
+                  const isConfirm = confirmRemoveIdx === i;
+
                   return (
-                    <div key={i} className="rounded-xl border border-gray-100 p-4 bg-gray-50">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2.5">
-                          <span className="text-xl">{PLATFORM_ICONS[acc.platform]}</span>
-                          <div>
-                            <span className="text-sm font-bold text-gray-800">{acc.platform}</span>
-                            <span className="text-sm text-gray-500 ml-2">@{acc.username}</span>
+                    <div
+                      key={i}
+                      className="rounded-2xl border overflow-hidden transition-all"
+                      style={{ borderColor: isEditing ? "#185FA5" : "#E5E7EB" }}
+                    >
+                      {/* Card header */}
+                      <div className="flex items-center gap-3 px-5 py-4" style={{ backgroundColor: colors.bg }}>
+                        <div
+                          className="w-10 h-10 rounded-xl flex items-center justify-center text-xl flex-shrink-0 border"
+                          style={{ borderColor: colors.border, backgroundColor: "white" }}
+                        >
+                          {PLATFORM_ICONS[acc.platform]}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-extrabold" style={{ color: colors.text }}>
+                              {acc.platform}
+                            </span>
+                            <span className="text-sm text-gray-500 truncate">@{acc.username}</span>
+                          </div>
+                          {/* Follower count (first stat) */}
+                          {fields[0] && acc.stats[fields[0].key] && (
+                            <p className="text-xs font-semibold mt-0.5" style={{ color: colors.text }}>
+                              {fmt(acc.stats[fields[0].key])} {fields[0].label.toLowerCase()}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Stats chips (non-editing view) */}
+                      {!isEditing && (
+                        <div className="px-5 pt-3 pb-4 bg-white">
+                          <div className="flex flex-wrap gap-2 mb-4">
+                            {fields.map((f) =>
+                              acc.stats[f.key] ? (
+                                <span
+                                  key={f.key}
+                                  className="text-xs font-medium rounded-full px-3 py-1"
+                                  style={{ backgroundColor: "#E6F1FB", color: "#185FA5" }}
+                                >
+                                  {f.label}: <strong>{fmt(acc.stats[f.key])}</strong>
+                                </span>
+                              ) : null
+                            )}
+                            {fields.every((f) => !acc.stats[f.key]) && (
+                              <span className="text-xs text-gray-400 italic">İstatistik girilmemiş</span>
+                            )}
+                          </div>
+
+                          {/* Action buttons or confirm prompt */}
+                          {isConfirm ? (
+                            <div className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+                              <p className="text-xs font-semibold text-red-700 flex-1">
+                                Bu hesabı kaldırmak istediğinden emin misin?
+                              </p>
+                              <button
+                                onClick={() => removeAccount(i)}
+                                className="rounded-lg px-3 py-1.5 text-xs font-bold text-white bg-red-500 hover:bg-red-600 transition-colors"
+                              >
+                                Evet, Kaldır
+                              </button>
+                              <button
+                                onClick={() => setConfirmRemoveIdx(null)}
+                                className="rounded-lg px-3 py-1.5 text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
+                              >
+                                İptal
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => startEdit(i)}
+                                className="flex-1 rounded-xl border-2 py-2 text-sm font-semibold transition-all hover:bg-[#EBF4FF]"
+                                style={{ borderColor: "#185FA5", color: "#185FA5" }}
+                              >
+                                Düzenle
+                              </button>
+                              <button
+                                onClick={() => { setConfirmRemoveIdx(i); setEditingIndex(null); setEditDraft(null); }}
+                                className="flex-1 rounded-xl border-2 py-2 text-sm font-semibold transition-all hover:bg-red-50"
+                                style={{ borderColor: "#EF4444", color: "#EF4444" }}
+                              >
+                                Kaldır
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Inline edit form */}
+                      {isEditing && editDraft && (
+                        <div className="px-5 pt-3 pb-5 bg-white border-t border-gray-100">
+                          <div className="mb-4">
+                            <label className="block text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">
+                              Kullanıcı Adı
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="Kullanıcı adın (@ olmadan)"
+                              value={editDraft.username}
+                              onChange={(e) => setEditDraft({ ...editDraft, username: e.target.value })}
+                              className={inputCls}
+                            />
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+                            {fields.map((field) => (
+                              <div key={field.key}>
+                                <label className="block text-xs font-semibold text-gray-500 mb-1.5">{field.label}</label>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  placeholder={field.placeholder}
+                                  value={editDraft.stats[field.key] ?? ""}
+                                  onChange={(e) =>
+                                    setEditDraft({
+                                      ...editDraft,
+                                      stats: { ...editDraft.stats, [field.key]: e.target.value },
+                                    })
+                                  }
+                                  className={inputCls}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={saveEdit}
+                              className="flex-1 rounded-xl py-2.5 text-sm font-semibold text-white transition-all hover:opacity-90"
+                              style={{ backgroundColor: "#185FA5" }}
+                            >
+                              Kaydet
+                            </button>
+                            <button
+                              onClick={cancelEdit}
+                              className="flex-1 rounded-xl py-2.5 text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-all"
+                            >
+                              İptal
+                            </button>
                           </div>
                         </div>
-                        <button
-                          onClick={() => removeAccount(i)}
-                          className="text-gray-400 hover:text-red-500 transition-colors text-xl leading-none"
-                        >
-                          ×
-                        </button>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {fields.map((f) =>
-                          acc.stats[f.key] ? (
-                            <span
-                              key={f.key}
-                              className="text-xs font-medium rounded-full px-2.5 py-1"
-                              style={{ backgroundColor: "#E6F1FB", color: "#185FA5" }}
-                            >
-                              {f.label}: <strong>{fmt(acc.stats[f.key])}</strong>
-                            </span>
-                          ) : null
-                        )}
-                      </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
             ) : (
-              <div className="rounded-xl border-2 border-dashed border-gray-200 py-8 text-center text-sm text-gray-400">
-                Henüz hesap eklenmedi.
+              <div className="rounded-xl border-2 border-dashed border-gray-200 py-10 text-center text-sm text-gray-400">
+                Henüz hesap eklenmedi. Yukarıdaki butona tıklayarak platform ekleyebilirsin.
               </div>
             )}
           </Section>
