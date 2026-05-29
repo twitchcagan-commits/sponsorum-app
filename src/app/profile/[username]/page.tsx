@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import Navbar from "@/components/Navbar";
 
@@ -272,8 +272,10 @@ function BarRow({ label, pct }: { label: string; pct: number }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ProfilePage() {
-  const params   = useParams();
-  const username = (params?.username as string) ?? "";
+  const params        = useParams();
+  const searchParams  = useSearchParams();
+  const username      = (params?.username as string) ?? "";
+  const platformParam = searchParams?.get("platform") ?? null;
 
   const [data,      setData]      = useState<ProfileData | null>(null);
   const [loading,   setLoading]   = useState(true);
@@ -389,7 +391,13 @@ export default function ProfilePage() {
     if (rows.length) acc[plat] = rows;
     return acc;
   }, {} as Record<string, PriceItem[]>);
-  const activePlatforms = platformOrder.filter((p) => pricesByPlatform[p]);
+
+  // Kick/Twitch both map to the "Stream" price group
+  const pricePlatformKey = (platformParam === "Kick" || platformParam === "Twitch") ? "Stream" : platformParam;
+  const activePlatforms = platformOrder.filter((p) => {
+    if (!pricesByPlatform[p]) return false;
+    return pricePlatformKey ? p === pricePlatformKey : true;
+  });
 
   // Stream platform label (based on connected accounts)
   const streamPlatforms = data.accounts
@@ -451,7 +459,7 @@ export default function ProfilePage() {
           </div>
 
           <div className="flex gap-3 flex-shrink-0 sm:pt-1">
-            <a href={`/offer/${data.username}`}>
+            <a href={`/offer/${data.username}${platformParam ? `?platform=${encodeURIComponent(platformParam)}` : ""}`}>
               <button
                 className="rounded-xl px-6 py-3 text-sm font-semibold text-white shadow-md transition-all hover:opacity-90 hover:shadow-lg active:scale-[0.98]"
                 style={{ backgroundColor: "#185FA5" }}
@@ -512,7 +520,14 @@ export default function ProfilePage() {
             {/* Price list */}
             {data.prices.length > 0 && (
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-                <h2 className="text-base font-extrabold mb-5" style={{ color: "#042C53" }}>Fiyat Listesi</h2>
+                <div className="flex items-center gap-3 mb-5">
+                  <h2 className="text-base font-extrabold" style={{ color: "#042C53" }}>Fiyat Listesi</h2>
+                  {platformParam && (
+                    <span className="text-xs font-semibold rounded-full px-2.5 py-1" style={{ backgroundColor: "#E6F1FB", color: "#185FA5" }}>
+                      {platformParam}
+                    </span>
+                  )}
+                </div>
                 {!canView && (
                   <div className="rounded-xl border border-blue-100 px-4 py-3 text-xs text-blue-700 mb-4" style={{ backgroundColor: "#EBF4FF" }}>
                     🔒 Fiyatları görmek için Marka Pro gerekli
@@ -608,6 +623,7 @@ export default function ProfilePage() {
               const grouped = PROOF_PLATFORM_ORDER.reduce<{ platform: string; entries: { key: string; label: string; url: string }[] }[]>(
                 (acc, platform) => {
                   if (!activePlatforms.has(platform)) return acc;
+                  if (platformParam && platform !== platformParam) return acc;
                   const entries = Object.entries(data.proofFiles)
                     .filter(([key]) => PROOF_LABELS[key]?.platform === platform)
                     .map(([key, url]) => ({ key, label: PROOF_LABELS[key]?.label ?? key, url }));

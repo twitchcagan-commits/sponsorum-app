@@ -12,7 +12,7 @@
 */
 
 import { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 
 // ─── Types & config ───────────────────────────────────────────────────────────
@@ -54,6 +54,15 @@ const ALL_CONTENT_TYPES: ContentTypeDef[] = [
 
 const PRICE_COLS = ALL_CONTENT_TYPES.map((ct) => ct.col);
 const PLATFORM_FEE = 0.15;
+
+const PLATFORM_TO_GROUP: Record<string, string> = {
+  Instagram: "Instagram",
+  TikTok:    "TikTok",
+  YouTube:   "YouTube",
+  Kick:      "Kick / Twitch",
+  Twitch:    "Kick / Twitch",
+  X:         "X",
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -183,9 +192,12 @@ function SummaryCard({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function OfferPage() {
-  const params   = useParams();
-  const router   = useRouter();
-  const username = (params?.username as string) ?? "";
+  const params        = useParams();
+  const router        = useRouter();
+  const searchParams  = useSearchParams();
+  const username      = (params?.username as string) ?? "";
+  const platformParam = searchParams?.get("platform") ?? null;
+  const groupFilter   = platformParam ? (PLATFORM_TO_GROUP[platformParam] ?? null) : null;
 
   const [yayinciId, setYayinciId]         = useState<string | null>(null);
   // null = still loading, [] = loaded but no prices set
@@ -338,16 +350,18 @@ export default function OfferPage() {
     router.push(`/messages?offer=${newOffer.id}`);
   }
 
-  // Group loaded types by platform for the UI
-  const groups = (availableTypes ?? []).reduce<{ group: string; types: LoadedContentType[] }[]>(
-    (acc, ct) => {
-      const existing = acc.find((g) => g.group === ct.group);
-      if (existing) existing.types.push(ct);
-      else acc.push({ group: ct.group, types: [ct] });
-      return acc;
-    },
-    []
-  );
+  // Group loaded types by platform for the UI — filtered by platform param if present
+  const groups = (availableTypes ?? [])
+    .filter((ct) => !groupFilter || ct.group === groupFilter)
+    .reduce<{ group: string; types: LoadedContentType[] }[]>(
+      (acc, ct) => {
+        const existing = acc.find((g) => g.group === ct.group);
+        if (existing) existing.types.push(ct);
+        else acc.push({ group: ct.group, types: [ct] });
+        return acc;
+      },
+      []
+    );
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -356,7 +370,7 @@ export default function OfferPage() {
       <header className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-50">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
           <a href="/" className="text-2xl font-extrabold tracking-tight" style={{ color: "#185FA5" }}>Sponsorum</a>
-          <a href={`/profile/${username}`} className="text-sm font-medium text-gray-500 hover:text-[#185FA5] transition-colors">
+          <a href={`/profile/${username}${platformParam ? `?platform=${encodeURIComponent(platformParam)}` : ""}`} className="text-sm font-medium text-gray-500 hover:text-[#185FA5] transition-colors">
             ← Profile Dön
           </a>
         </div>
@@ -371,6 +385,11 @@ export default function OfferPage() {
           </h1>
           <p className="text-sm text-gray-500">
             <span className="font-semibold text-gray-700">@{username}</span> adlı yayıncıya teklif gönderiyorsunuz.
+            {platformParam && (
+              <span className="ml-1.5 inline-flex items-center text-xs font-semibold rounded-full px-2.5 py-0.5 align-middle" style={{ backgroundColor: "#E6F1FB", color: "#185FA5" }}>
+                {platformParam}
+              </span>
+            )}
           </p>
           {fetchError && (
             <div className="mt-3 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">

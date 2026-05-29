@@ -1,5 +1,5 @@
 "use client";
-// Search page �?yayinci discovery with platform/niche/follower filters
+// Search page �?yayinci discovery with platform/niche/follower filters
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
@@ -16,14 +16,15 @@ type SocialAccount = {
 type AdFormat = { label: string; price: number };
 
 type Influencer = {
-  id:            string;
-  username:      string;
-  displayName:   string;
-  niche:         string;
-  platforms:     string[];
-  followers:     number;
-  adFormats:     AdFormat[];   // up to 3 non-null price entries
-  startingPrice: number | null; // kept for price-range filter
+  id:              string;
+  username:        string;
+  displayName:     string;
+  niche:           string;
+  platform:        string;
+  accountUsername: string;
+  followers:       number;
+  adFormats:       AdFormat[];
+  startingPrice:   number | null;
 };
 
 // ─── Filter config ────────────────────────────────────────────────────────────
@@ -32,9 +33,9 @@ const PLATFORMS  = ["X", "Instagram", "TikTok", "YouTube", "Kick", "Twitch"];
 const CATEGORIES = ["Oyun", "Futbol", "Mizah", "Influencer", "Müzik", "Diğer"];
 
 const FOLLOWER_RANGES = [
-  { label: "1K �?10K",   min: 1_000,   max: 10_000  },
-  { label: "10K �?50K",  min: 10_000,  max: 50_000  },
-  { label: "50K �?200K", min: 50_000,  max: 200_000 },
+  { label: "1K–10K",   min: 1_000,   max: 10_000  },
+  { label: "10K–50K",  min: 10_000,  max: 50_000  },
+  { label: "50K–200K", min: 50_000,  max: 200_000 },
   { label: "200K+",      min: 200_000, max: Infinity },
 ];
 
@@ -45,9 +46,9 @@ const ENGAGEMENT_RATES = [
 ];
 
 const PRICE_RANGES = [
-  { label: "�?50 �?�?.000", min: 750,  max: 2000     },
-  { label: "�?.000 �?�?.000", min: 2000, max: 5000   },
-  { label: "�?.000+",        min: 5000, max: Infinity },
+  { label: "₺750–₺2.000", min: 750,  max: 2000     },
+  { label: "₺2.000–₺5.000", min: 2000, max: 5000   },
+  { label: "₺5.000+",        min: 5000, max: Infinity },
 ];
 
 // All price columns on yayinci_profiles
@@ -60,11 +61,29 @@ const PRICE_COLS = [
 ] as const;
 
 const NICHE_EMOJI: Record<string, string> = {
-  Oyun: "🎮", Futbol: "�?, Mizah: "😂", Influencer: "🌟", Müzik: "🎤", Diğer: "�?,
+  Oyun: "🎮", Futbol: "⚽", Mizah: "😂", Influencer: "🌟", Müzik: "🎤", Diğer: "✨",
 };
 
 const PLATFORM_ICONS: Record<string, string> = {
-  X: "𝕏", Instagram: "📸", TikTok: "🎵", YouTube: "�?, Kick: "🟢", Twitch: "💜",
+  X: "𝕏", Instagram: "📸", TikTok: "🎵", YouTube: "▶", Kick: "🟢", Twitch: "💜",
+};
+
+const PLATFORM_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  Instagram: { bg: "#FFF0F9", text: "#C026D3", border: "#F0ABFC" },
+  TikTok:    { bg: "#F0F0F0", text: "#111111", border: "#D1D5DB" },
+  YouTube:   { bg: "#FFF0F0", text: "#DC2626", border: "#FECACA" },
+  Kick:      { bg: "#F0FFF4", text: "#16A34A", border: "#86EFAC" },
+  Twitch:    { bg: "#F5F0FF", text: "#7C3AED", border: "#C4B5FD" },
+  X:         { bg: "#F0F4FF", text: "#1D4ED8", border: "#BFDBFE" },
+};
+
+const PLATFORM_PRICE_COLS: Record<string, string[]> = {
+  Instagram: ["price_ig_story", "price_ig_reels", "price_ig_post", "price_ig_highlight", "price_ig_bio_link"],
+  TikTok:    ["price_tt_video", "price_tt_live", "price_tt_profile_link"],
+  YouTube:   ["price_yt_video", "price_yt_end_screen", "price_yt_desc_link", "price_yt_live_banner", "price_yt_overlay"],
+  Kick:      ["price_stream_mention", "price_stream_overlay", "price_stream_panel", "price_stream_integrated"],
+  Twitch:    ["price_stream_mention", "price_stream_overlay", "price_stream_panel", "price_stream_integrated"],
+  X:         ["price_tweet", "price_x_pinned", "price_x_thread", "price_x_bio"],
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -75,7 +94,7 @@ function fmt(n: number): string {
   return String(n);
 }
 
-// Mask each word: keep first letter, replace rest with asterisks. "Can Yılmaz" �?"C*** Y*****"
+// Mask each word: keep first letter, replace rest with asterisks. "Can Yılmaz" �?"C*** Y*****"
 function maskName(name: string): string {
   return name
     .split(" ")
@@ -89,14 +108,10 @@ function toggle<T>(set: Set<T>, value: T): Set<T> {
   return next;
 }
 
-function deriveFollowers(accounts: SocialAccount[]): number {
-  let max = 0;
-  for (const acc of accounts) {
-    const raw = acc.stats?.followers ?? acc.stats?.subscribers ?? "0";
-    const n = parseInt(raw);
-    if (!isNaN(n) && n > max) max = n;
-  }
-  return max;
+function getAccountFollowers(acc: SocialAccount): number {
+  const raw = acc.stats?.followers ?? acc.stats?.subscribers ?? "0";
+  const n = parseInt(raw);
+  return isNaN(n) ? 0 : n;
 }
 
 const PRICE_COL_LABELS: Record<string, string> = {
@@ -124,9 +139,10 @@ const PRICE_COL_LABELS: Record<string, string> = {
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function deriveAdFormats(yp: Record<string, any>): AdFormat[] {
+function deriveAdFormatsForPlatform(yp: Record<string, any>, platform: string): AdFormat[] {
+  const cols = PLATFORM_PRICE_COLS[platform] ?? [];
   const formats: AdFormat[] = [];
-  for (const col of PRICE_COLS) {
+  for (const col of cols) {
     if (formats.length >= 3) break;
     const v = yp[col];
     if (v === null || v === undefined) continue;
@@ -137,9 +153,10 @@ function deriveAdFormats(yp: Record<string, any>): AdFormat[] {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function deriveStartingPrice(yp: Record<string, any>): number | null {
+function deriveStartingPriceForPlatform(yp: Record<string, any>, platform: string): number | null {
+  const cols = PLATFORM_PRICE_COLS[platform] ?? [];
   let min: number | null = null;
-  for (const col of PRICE_COLS) {
+  for (const col of cols) {
     const v = yp[col];
     if (v !== null && v !== undefined) {
       const n = Number(v);
@@ -194,42 +211,30 @@ async function fetchInfluencers(): Promise<Influencer[]> {
   // 3. Build lookup map for profiles
   const profileMap = Object.fromEntries(profileRows.map((p) => [p.id, p]));
 
-  // 4. Merge and derive
+  // 4. Expand each yayinci into one entry per social account
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ypRows
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .map((yp: any) => {
-      const profile = profileMap[yp.id];
-      const accounts: SocialAccount[] = yp.social_accounts ?? [];
-      const categories: string[]      = yp.categories ?? [];
+  return (ypRows as any[]).flatMap((yp) => {
+    const profile   = profileMap[yp.id];
+    const accounts: SocialAccount[] = yp.social_accounts ?? [];
+    const categories: string[]      = yp.categories ?? [];
+    const niche       = categories[0] ?? yp.niche ?? "Diğer";
+    const username    = profile?.username ?? profile?.display_name?.toLowerCase().replace(/\s+/g, "") ?? yp.id.slice(0, 8);
+    const displayName = profile?.display_name ?? username;
 
-      const platforms = accounts.length > 0
-        ? [...new Set(accounts.map((a) => a.platform))]
-        : (yp.platforms ?? []);
-
-      const niche     = categories[0] ?? yp.niche ?? "Diğer";
-      const followers = yp.followers_count ?? deriveFollowers(accounts);
-
-      const username    = profile?.username ?? profile?.display_name?.toLowerCase().replace(/\s+/g, "") ?? yp.id.slice(0, 8);
-      const displayName = profile?.display_name ?? username;
-
-      return {
-        id:            yp.id,
+    return accounts
+      .filter((acc) => acc.platform && acc.username)
+      .map((acc) => ({
+        id:              yp.id,
         username,
         displayName,
         niche,
-        platforms,
-        followers,
-        adFormats:     deriveAdFormats(yp),
-        startingPrice: deriveStartingPrice(yp),
-        _hasAccounts:  accounts.length > 0,
-      };
-    })
-    // Hide yayıncılar who have removed all social accounts
-    .filter((inf: any) => inf._hasAccounts && inf.platforms.length > 0)
-    // Drop the internal flag before returning
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    .map(({ _hasAccounts, ...inf }) => inf);
+        platform:        acc.platform,
+        accountUsername: acc.username,
+        followers:       getAccountFollowers(acc),
+        adFormats:       deriveAdFormatsForPlatform(yp, acc.platform),
+        startingPrice:   deriveStartingPriceForPlatform(yp, acc.platform),
+      }));
+  });
 }
 
 // ─── Sidebar section wrapper ──────────────────────────────────────────────────
@@ -269,7 +274,7 @@ function LockModal({ onClose }: { onClose: () => void }) {
           className="block w-full rounded-xl py-3 text-sm font-semibold text-white text-center mb-3 transition-all hover:opacity-90"
           style={{ backgroundColor: "#185FA5" }}
         >
-          299 �?ay �?Marka Pro Ol
+          299 ₺/ay — Marka Pro Ol
         </a>
         <button
           onClick={onClose}
@@ -295,48 +300,42 @@ function InfluencerCard({
     if (!isPro) { e.preventDefault(); onLocked(); }
   }
 
+  const colors = PLATFORM_COLORS[inf.platform] ?? { bg: "#E6F1FB", text: "#185FA5", border: "#BFDBFE" };
+
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all flex flex-col p-6 gap-4">
-      {/* Avatar + name */}
+      {/* Platform icon + influencer info */}
       <div className="flex items-center gap-3">
         <div
-          className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0"
-          style={{ backgroundColor: "#E6F1FB" }}
+          className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0 border-2"
+          style={{ backgroundColor: colors.bg, borderColor: colors.border }}
         >
-          {NICHE_EMOJI[inf.niche] ?? "�?}
+          {PLATFORM_ICONS[inf.platform] ?? "📱"}
         </div>
-        <div className="min-w-0">
-          <p className="font-bold text-sm truncate" style={{ color: "#042C53" }}>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-xs font-bold" style={{ color: colors.text }}>{inf.platform}</span>
+            <span
+              className="text-xs font-semibold rounded-full px-2 py-0.5"
+              style={{ backgroundColor: "#E6F1FB", color: "#185FA5" }}
+            >
+              {NICHE_EMOJI[inf.niche] ?? ""} {inf.niche}
+            </span>
+          </div>
+          <p className="font-bold text-sm truncate mt-0.5" style={{ color: "#042C53" }}>
             {isPro ? inf.displayName : maskName(inf.displayName)}
           </p>
-          {isPro && (
-            <p className="text-xs text-gray-400 truncate">@{inf.username}</p>
-          )}
-          <span
-            className="inline-block mt-1 text-xs font-semibold rounded-full px-2 py-0.5"
-            style={{ backgroundColor: "#E6F1FB", color: "#185FA5" }}
-          >
-            {inf.niche}
-          </span>
+          <p className={`text-xs mt-0.5 truncate ${!isPro ? "blur-sm select-none" : "text-gray-400"}`}>
+            @{isPro ? inf.accountUsername : "••••••"}
+          </p>
         </div>
       </div>
-
-      {/* Platforms */}
-      {inf.platforms.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {inf.platforms.map((p) => (
-            <span key={p} className="text-xs bg-gray-50 border border-gray-100 rounded-lg px-2 py-0.5 text-gray-500 font-medium">
-              {PLATFORM_ICONS[p] ?? ""} {p}
-            </span>
-          ))}
-        </div>
-      )}
 
       {/* Follower count */}
       <div className="flex items-center gap-2 px-0.5">
         <span className="text-xs text-gray-400">Takipçi:</span>
         <span className={`text-sm font-bold ${!isPro ? "blur-sm select-none" : ""}`} style={{ color: "#042C53" }}>
-          {isPro ? (inf.followers > 0 ? fmt(inf.followers) : "�?) : "••�?K"}
+          {isPro ? (inf.followers > 0 ? fmt(inf.followers) : "—") : "••K"}
         </span>
       </div>
 
@@ -346,7 +345,7 @@ function InfluencerCard({
           <div key={f.label} className="flex items-center justify-between rounded-lg px-2.5 py-1.5 bg-gray-50">
             <span className="text-xs text-gray-600 truncate mr-2">{f.label}</span>
             <span className={`text-xs font-bold flex-shrink-0 ${!isPro ? "blur-sm select-none" : ""}`} style={{ color: "#042C53" }}>
-              {isPro ? `�?{f.price.toLocaleString("tr-TR")}` : "₺••�?}
+              {isPro ? `₺${f.price.toLocaleString("tr-TR")}` : "₺••"}
             </span>
           </div>
         )) : (
@@ -355,7 +354,7 @@ function InfluencerCard({
       </div>
 
       {/* CTA */}
-      <a href={`/profile/${inf.username}`} className="mt-auto" onClick={handleView}>
+      <a href={`/profile/${inf.username}?platform=${encodeURIComponent(inf.platform)}`} className="mt-auto" onClick={handleView}>
         <button
           className="w-full rounded-xl py-2.5 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98]"
           style={{ backgroundColor: "#185FA5" }}
@@ -388,7 +387,7 @@ export default function SearchPage() {
   const [engagementRate, setEngagementRate] = useState<number | null>(null);
   const [priceRange,     setPriceRange]     = useState<{ min: number; max: number } | null>(null);
 
-  // Role check �?redirect yayinci, check marka pro status
+  // Role check �?redirect yayinci, check marka pro status
   useEffect(() => {
     const supabase = createClient();
     supabase.auth.getUser().then(async ({ data: { user } }) => {
@@ -436,7 +435,7 @@ export default function SearchPage() {
 
   const filtered = useMemo(() => {
     return allInfluencers.filter((inf: any) => {
-      if (platforms.size > 0 && !inf.platforms.some((p) => platforms.has(p))) return false;
+      if (platforms.size > 0 && !platforms.has(inf.platform)) return false;
       if (categories.size > 0 && !categories.has(inf.niche)) return false;
       if (followerRange !== null) {
         const range = FOLLOWER_RANGES[followerRange];
@@ -610,13 +609,13 @@ export default function SearchPage() {
     cardsContent = (
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
         {filtered.map((inf) => (
-            <InfluencerCard key={inf.id} inf={inf} isPro={isPro} onLocked={() => setLockModal(true)} />
+            <InfluencerCard key={`${inf.id}-${inf.platform}`} inf={inf} isPro={isPro} onLocked={() => setLockModal(true)} />
           ))}
       </div>
     );
   }
 
-  // Block yayinci �?show message while redirect fires
+  // Block yayinci �?show message while redirect fires
   if (roleChecked && role === "yayinci") {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -626,9 +625,10 @@ export default function SearchPage() {
           <h2 className="text-xl font-extrabold mb-2" style={{ color: "#042C53" }}>
             Bu sayfa markalar içindir
           </h2>
-          <p className="text-sm text-gray-500 mb-6">Dashboard&apos;a yönlendiriliyorsunuz�?/p>
+          <p className="text-sm text-gray-500 mb-6">Dashboard&apos;a yönlendiriliyorsunuz…</p>
           <a href="/dashboard" className="text-sm font-semibold hover:underline" style={{ color: "#185FA5" }}>
-            Dashboard&apos;a Git �?          </a>
+            Dashboard&apos;a Git →
+          </a>
         </div>
       </div>
     );
@@ -648,7 +648,7 @@ export default function SearchPage() {
           <div>
             <h1 className="text-2xl font-extrabold" style={{ color: "#042C53" }}>Yayıncı Bul</h1>
             <p className="text-sm text-gray-500 mt-0.5">
-              {loading ? "Yükleniyor�? : `${filtered.length} yayıncı bulundu`}
+              {loading ? "Yükleniyor…" : `${filtered.length} hesap bulundu`}
             </p>
           </div>
           <button

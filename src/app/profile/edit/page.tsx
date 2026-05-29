@@ -1,4 +1,8 @@
 "use client";
+/*
+  Run in Supabase SQL Editor if not already present:
+  alter table yayinci_profiles add column if not exists is_pro boolean default false;
+*/
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -8,6 +12,9 @@ import Navbar from "@/components/Navbar";
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const PLATFORMS = ["X", "Instagram", "TikTok", "YouTube", "Kick", "Twitch"];
+
+const FREE_ACCOUNT_LIMIT = 5;
+const PRO_ACCOUNT_LIMIT  = 15;
 
 const PLATFORM_ICONS: Record<string, string> = {
   X: "𝕏", Instagram: "📸", TikTok: "🎵", YouTube: "▶", Kick: "🟢", Twitch: "💜",
@@ -157,6 +164,7 @@ const inputCls = "w-full rounded-xl border border-gray-200 px-4 py-3 text-sm tex
 export default function ProfileEditPage() {
   const router = useRouter();
 
+  const [isPro,       setIsPro]       = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [saving,      setSaving]      = useState(false);
   const [saveError,   setSaveError]   = useState("");
@@ -214,7 +222,7 @@ export default function ProfileEditPage() {
       if (profile?.role !== "yayinci") { router.push("/dashboard"); return; }
 
       const cols = [
-        "bio", "categories", "social_accounts", "visibility", "proof_files",
+        "bio", "categories", "social_accounts", "visibility", "proof_files", "is_pro",
         ...PRICE_ROWS.map((r) => r.col),
       ].join(", ");
 
@@ -226,6 +234,7 @@ export default function ProfileEditPage() {
         .maybeSingle() as any);
 
       if (yp) {
+        setIsPro(yp.is_pro === true);
         setBio(yp.bio ?? "");
         setCategories(yp.categories ?? []);
         setSocialAccounts(yp.social_accounts ?? []);
@@ -259,6 +268,8 @@ export default function ProfileEditPage() {
   // ── Modal handlers ──
 
   function openModal() {
+    const limit     = isPro ? PRO_ACCOUNT_LIMIT : FREE_ACCOUNT_LIMIT;
+    if (socialAccounts.length >= limit) return;
     const available = PLATFORMS.filter((p) => !socialAccounts.some((a) => a.platform === p));
     setSelPlatform(available[0] ?? "Instagram");
     setSelUsername("");
@@ -1024,13 +1035,16 @@ export default function ProfileEditPage() {
           <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
             <div>
               <h2 className="text-base font-extrabold" style={{ color: "#042C53" }}>Sosyal Medya Hesapları</h2>
-              {socialAccounts.length > 0 && (
-                <p className="text-xs text-gray-400 mt-0.5">{socialAccounts.length} hesap bağlı</p>
-              )}
+              <p className="text-xs text-gray-400 mt-0.5">
+                {socialAccounts.length}/{isPro ? PRO_ACCOUNT_LIMIT : FREE_ACCOUNT_LIMIT} hesap
+              </p>
             </div>
             <button
               onClick={openModal}
-              disabled={socialAccounts.length >= PLATFORMS.length}
+              disabled={
+                socialAccounts.length >= (isPro ? PRO_ACCOUNT_LIMIT : FREE_ACCOUNT_LIMIT) ||
+                socialAccounts.length >= PLATFORMS.length
+              }
               className="flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ backgroundColor: "#185FA5" }}
             >
@@ -1083,6 +1097,24 @@ export default function ProfileEditPage() {
             </div>
           )}
         </div>
+
+        {/* Upgrade banner — shown when free user is at limit */}
+        {!isPro && socialAccounts.length >= FREE_ACCOUNT_LIMIT && (
+          <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 flex items-start gap-3">
+            <span className="text-xl mt-0.5">⭐</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-amber-800">Pro&apos;ya Geç — 15 Hesaba Kadar</p>
+              <p className="text-xs text-amber-600 mt-0.5">Ücretsiz planda en fazla {FREE_ACCOUNT_LIMIT} hesap ekleyebilirsin. Pro ile 15 hesaba kadar ekle.</p>
+            </div>
+            <a
+              href="/yayinci/pro"
+              className="flex-shrink-0 text-xs font-bold text-white rounded-xl px-3 py-2 transition-colors"
+              style={{ backgroundColor: "#D97706" }}
+            >
+              Yükselt
+            </a>
+          </div>
+        )}
 
         {/* Save */}
         {saveError && (
