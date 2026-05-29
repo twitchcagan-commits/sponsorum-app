@@ -1,6 +1,7 @@
 "use client";
 // Search page — yayinci discovery with platform/niche/follower filters
 import { useState, useEffect, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import Navbar from "@/components/Navbar";
 
@@ -289,15 +290,40 @@ function InfluencerCard({ inf }: { inf: Influencer }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SearchPage() {
+  const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [allInfluencers, setAllInfluencers] = useState<Influencer[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [role,        setRole]        = useState<"yayinci" | "marka" | null>(null);
+  const [roleChecked, setRoleChecked] = useState(false);
 
   const [platforms,      setPlatforms]      = useState<Set<string>>(new Set());
   const [categories,     setCategories]     = useState<Set<string>>(new Set());
   const [followerRange,  setFollowerRange]  = useState<number | null>(null);
   const [engagementRate, setEngagementRate] = useState<number | null>(null);
   const [priceRange,     setPriceRange]     = useState<{ min: number; max: number } | null>(null);
+
+  // Role check — redirect yayinci away from this page
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session?.user) { setRoleChecked(true); return; }
+      const metaRole = session.user.user_metadata?.role as string | undefined;
+      if (metaRole) {
+        setRole(metaRole as "yayinci" | "marka");
+        setRoleChecked(true);
+        return;
+      }
+      const { data } = await supabase.from("profiles").select("role").eq("id", session.user.id).maybeSingle();
+      setRole((data?.role ?? null) as "yayinci" | "marka" | null);
+      setRoleChecked(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (role === "yayinci") router.push("/dashboard");
+  }, [role, router]);
 
   useEffect(() => {
     fetchInfluencers().then((data) => {
@@ -482,6 +508,25 @@ export default function SearchPage() {
     cardsContent = (
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
         {filtered.map((inf) => <InfluencerCard key={inf.id} inf={inf} />)}
+      </div>
+    );
+  }
+
+  // Block yayinci — show message while redirect fires
+  if (roleChecked && role === "yayinci") {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Navbar />
+        <div className="flex flex-col items-center justify-center py-32 text-center px-4">
+          <div className="text-5xl mb-5">🔒</div>
+          <h2 className="text-xl font-extrabold mb-2" style={{ color: "#042C53" }}>
+            Bu sayfa markalar içindir
+          </h2>
+          <p className="text-sm text-gray-500 mb-6">Dashboard&apos;a yönlendiriliyorsunuz…</p>
+          <a href="/dashboard" className="text-sm font-semibold hover:underline" style={{ color: "#185FA5" }}>
+            Dashboard&apos;a Git →
+          </a>
+        </div>
       </div>
     );
   }

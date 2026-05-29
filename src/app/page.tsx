@@ -21,13 +21,33 @@ const HOME_NAV = (
   </nav>
 );
 
+type Role = "yayinci" | "marka" | null;
+
 export default function Home() {
   const [loggedIn, setLoggedIn] = useState(false);
+  const [role,     setRole]     = useState<Role>(null);
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getSession().then(({ data: { session } }) => setLoggedIn(!!session));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => setLoggedIn(!!s));
+
+    async function load() {
+      const { data: { session } } = await supabase.auth.getSession();
+      setLoggedIn(!!session);
+      if (!session?.user) return;
+      const metaRole = session.user.user_metadata?.role as Role;
+      if (metaRole) setRole(metaRole);
+      const { data } = await supabase.from("profiles").select("role").eq("id", session.user.id).maybeSingle();
+      if (data?.role) setRole(data.role as Role);
+    }
+
+    load();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
+      setLoggedIn(!!session);
+      if (!session) { setRole(null); return; }
+      const metaRole = session.user.user_metadata?.role as Role;
+      if (metaRole) setRole(metaRole);
+    });
     return () => subscription.unsubscribe();
   }, []);
 
@@ -54,20 +74,35 @@ export default function Home() {
             Ne kimliğin ifşa olur, ne de zaman kaybedersin.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <a
-              href="/search"
-              className="inline-flex items-center justify-center gap-2 text-base font-semibold text-white rounded-xl px-8 py-4 shadow-lg transition-all hover:shadow-xl hover:-translate-y-0.5"
-              style={{ backgroundColor: "#185FA5" }}
-            >
-              Sponsor Bul
-            </a>
-            <a
-              href={loggedIn ? "/profile/complete" : "/register"}
-              className="inline-flex items-center justify-center gap-2 text-base font-semibold rounded-xl px-8 py-4 border-2 transition-all hover:-translate-y-0.5"
-              style={{ borderColor: "#185FA5", color: "#185FA5", backgroundColor: "white" }}
-            >
-              Yayıncı Ol &amp; Para Kazan
-            </a>
+            {/* "Sponsor Bul" — hidden for yayinci */}
+            {role !== "yayinci" && (
+              <a
+                href="/search"
+                className="inline-flex items-center justify-center gap-2 text-base font-semibold text-white rounded-xl px-8 py-4 shadow-lg transition-all hover:shadow-xl hover:-translate-y-0.5"
+                style={{ backgroundColor: "#185FA5" }}
+              >
+                Sponsor Bul
+              </a>
+            )}
+
+            {/* Secondary CTA — role-aware */}
+            {role === "yayinci" ? (
+              <a
+                href="/profile/edit"
+                className="inline-flex items-center justify-center gap-2 text-base font-semibold rounded-xl px-8 py-4 border-2 transition-all hover:-translate-y-0.5"
+                style={{ borderColor: "#185FA5", color: "#185FA5", backgroundColor: "white" }}
+              >
+                Profilimi Güncelle
+              </a>
+            ) : role !== "marka" ? (
+              <a
+                href={loggedIn ? "/profile/complete" : "/register"}
+                className="inline-flex items-center justify-center gap-2 text-base font-semibold rounded-xl px-8 py-4 border-2 transition-all hover:-translate-y-0.5"
+                style={{ borderColor: "#185FA5", color: "#185FA5", backgroundColor: "white" }}
+              >
+                Yayıncı Ol &amp; Para Kazan
+              </a>
+            ) : null}
           </div>
         </div>
         {/* decorative blur */}

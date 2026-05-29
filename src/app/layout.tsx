@@ -66,6 +66,9 @@ export default function RootLayout({
       lang="tr"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        <meta name="cache-control" content="no-cache" />
+      </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );

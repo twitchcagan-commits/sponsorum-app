@@ -1,15 +1,45 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 
 type Role = "yayinci" | "marka" | null;
+type SessionHint = { username: string | null; role: Role };
 
 interface NavbarProps {
-  navLinks?: React.ReactNode;
+  navLinks?: React.ReactNode; // used only when the user is logged-out
   maxWidth?: string;
 }
+
+// ─── localStorage helper ──────────────────────────────────────────────────────
+
+// Supabase persists the session in localStorage under a key matching
+// sb-<project-ref>-auth-token. Reading it is synchronous and available
+// immediately on the client — no async round-trip needed.
+function readLocalStorageSession(): SessionHint | null {
+  if (typeof window === "undefined") return null;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith("sb-") || !key.endsWith("-auth-token")) continue;
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      const user = parsed?.user ?? parsed; // handle both wrapped and flat shapes
+      if (!user?.user_metadata) continue;
+      return {
+        username: user.user_metadata.username ?? null,
+        role:     (user.user_metadata.role    ?? null) as Role,
+      };
+    }
+  } catch {
+    // localStorage unavailable (e.g. private-browsing restrictions) — fail silently
+  }
+  return null;
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function DropdownLink({
   href, label, icon, unread = 0,
@@ -32,8 +62,12 @@ function DropdownLink({
   );
 }
 
+// ─── Navbar ───────────────────────────────────────────────────────────────────
+
 export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps) {
-  const router = useRouter();
+  const router   = useRouter();
+  const pathname = usePathname();
+
   const [loggedIn,     setLoggedIn]     = useState(false);
   const [username,     setUsername]     = useState<string | null>(null);
   const [role,         setRole]         = useState<Role>(null);
@@ -41,49 +75,72 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // ── Synchronous localStorage read — runs before every paint ─────────────────
+  //
+  // Supabase writes the session to localStorage synchronously at login.
+  // Reading it in useLayoutEffect fires BEFORE the browser paints, so the
+  // navbar always shows the correct logged-in state on the very first frame —
+  // including when the user navigates back and React re-initialises component
+  // state from scratch.
+  useLayoutEffect(() => {
+    const session = readLocalStorageSession();
+    if (session) {
+      setLoggedIn(true);
+      if (session.username) setUsername(session.username);
+      if (session.role)     setRole(session.role);
+    } else {
+      setLoggedIn(false);
+      setUsername(null);
+      setRole(null);
+    }
+  }, [pathname]);
+
+  // ── Background verification + realtime auth events ────────────────────────────
+  //
+  // Verifies the session server-side once on mount and keeps state in sync with
+  // any auth events (sign-in / sign-out / token refresh) that happen during the
+  // session. The profile DB query fills in data that may not be in the cookie
+  // (e.g. if the username was updated after the last middleware run).
   useEffect(() => {
     const supabase = createClient();
 
-    async function syncUser(userId: string | null, metaUsername?: string, metaRole?: string) {
-      if (!userId) {
+    async function verify() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
         setLoggedIn(false);
         setUsername(null);
         setRole(null);
-        setUnreadCount(0);
         return;
       }
       setLoggedIn(true);
-      // Show metadata immediately while the DB query runs
-      if (metaUsername) setUsername(metaUsername);
-      if (metaRole)     setRole(metaRole as Role);
-
       const { data: profile } = await supabase
         .from("profiles")
         .select("username, role")
-        .eq("id", userId)
+        .eq("id", user.id)
         .maybeSingle();
-
-      // DB values win; fall back to metadata if profile not yet created
-      setUsername(profile?.username ?? metaUsername ?? null);
-      setRole((profile?.role ?? metaRole ?? null) as Role);
+      if (profile?.username) setUsername(profile.username);
+      if (profile?.role)     setRole(profile.role as Role);
     }
 
-    // Seed from current session immediately so the navbar is correct on first paint
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      const u = session?.user;
-      syncUser(u?.id ?? null, u?.user_metadata?.username, u?.user_metadata?.role);
-    });
+    verify();
 
-    // Stay in sync across login / logout / token refresh on every page
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      const u = session?.user;
-      syncUser(u?.id ?? null, u?.user_metadata?.username, u?.user_metadata?.role);
+      if (!session) {
+        setLoggedIn(false);
+        setUsername(null);
+        setRole(null);
+      } else {
+        setLoggedIn(true);
+        const u = session.user;
+        if (u.user_metadata?.username) setUsername(u.user_metadata.username);
+        if (u.user_metadata?.role)     setRole(u.user_metadata.role as Role);
+      }
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  // Close dropdown on outside click or Escape
+  // ── Dropdown outside-click / Escape ──────────────────────────────────────────
   useEffect(() => {
     if (!dropdownOpen) return;
     function onMouseDown(e: MouseEvent) {
@@ -95,21 +152,40 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
       if (e.key === "Escape") setDropdownOpen(false);
     }
     document.addEventListener("mousedown", onMouseDown);
-    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keydown",   onKeyDown);
     return () => {
       document.removeEventListener("mousedown", onMouseDown);
-      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("keydown",   onKeyDown);
     };
   }, [dropdownOpen]);
 
   async function handleSignOut() {
     setDropdownOpen(false);
     const supabase = createClient();
-    await supabase.auth.signOut();
+    await supabase.auth.signOut(); // Supabase removes the localStorage entry automatically
     router.push("/");
   }
 
   const avatarInitials = username ? username.slice(0, 2).toUpperCase() : "?";
+
+  // Middle nav — role-based when logged in, falls back to prop when logged out
+  const middleLinks = loggedIn && role ? (
+    <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
+      {role === "yayinci" ? (
+        <>
+          <a href="/offers"       className="text-gray-600 hover:text-[#185FA5] transition-colors">Tekliflerim</a>
+          <a href="/messages"     className="text-gray-600 hover:text-[#185FA5] transition-colors">Mesajlarım</a>
+          <a href="/profile/edit" className="text-gray-600 hover:text-[#185FA5] transition-colors">Profilim</a>
+        </>
+      ) : (
+        <>
+          <a href="/search"    className="text-gray-600 hover:text-[#185FA5] transition-colors">Sponsor Bul</a>
+          <a href="/campaigns" className="text-gray-600 hover:text-[#185FA5] transition-colors">Kampanyalarım</a>
+          <a href="/payments"  className="text-gray-600 hover:text-[#185FA5] transition-colors">Ödemeler</a>
+        </>
+      )}
+    </nav>
+  ) : !loggedIn ? (navLinks ?? null) : null;
 
   return (
     <header className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-50">
@@ -119,7 +195,7 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
           Sponsorum
         </a>
 
-        {navLinks}
+        {middleLinks}
 
         <div className="flex items-center gap-1.5 sm:gap-2">
           {loggedIn ? (
@@ -175,7 +251,6 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
                 {dropdownOpen && (
                   <div className="absolute right-0 top-full mt-2 w-56 max-w-[calc(100vw-1.5rem)] bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
 
-                    {/* User header */}
                     <div className="px-4 py-3 flex items-center gap-3">
                       <div
                         className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
@@ -196,16 +271,25 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
                     <div className="border-t border-gray-100" />
 
                     <div className="py-1">
-                      <DropdownLink href="/dashboard"  label="Dashboard"    icon="🏠" />
+                      <DropdownLink href="/dashboard" label="Dashboard" icon="🏠" />
                       {role === "yayinci" && (
                         <>
                           <DropdownLink href="/profile/complete" label="Profilimi Tamamla" icon="👤" />
                           <DropdownLink href="/profile/edit"     label="Profilimi Düzenle" icon="✏️" />
+                          <DropdownLink href="/offers"           label="Tekliflerim"        icon="📨" />
+                          <DropdownLink href="/messages"         label="Mesajlarım"         icon="💬" unread={unreadCount} />
                         </>
                       )}
-                      <DropdownLink href="/offers"   label="Tekliflerim"  icon="📨" />
-                      <DropdownLink href="/messages" label="Mesajlarım"   icon="💬" unread={unreadCount} />
-                      <DropdownLink href="/settings" label="Ayarlar"      icon="⚙️" />
+                      {role === "marka" && (
+                        <>
+                          <DropdownLink href="/marka/edit" label="Profilimi Düzenle" icon="✏️" />
+                          <DropdownLink href="/search"     label="Sponsor Bul"       icon="🔍" />
+                          <DropdownLink href="/campaigns"  label="Kampanyalarım"     icon="📊" />
+                          <DropdownLink href="/payments"   label="Ödemeler"          icon="💳" />
+                          <DropdownLink href="/messages"   label="Mesajlarım"        icon="💬" unread={unreadCount} />
+                        </>
+                      )}
+                      <DropdownLink href="/settings" label="Ayarlar" icon="⚙️" />
                     </div>
 
                     <div className="border-t border-gray-100" />

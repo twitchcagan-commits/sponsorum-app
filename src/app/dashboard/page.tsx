@@ -81,7 +81,10 @@ export default function DashboardPage() {
         return;
       }
 
+      // Seed from metadata immediately, then confirm from DB
       setRole((data.user.user_metadata?.role as Role) ?? null);
+      supabase.from("profiles").select("role").eq("id", data.user.id).maybeSingle()
+        .then(({ data: p }) => { if (p?.role) setRole(p.role as Role); });
 
       // Finish deferred profile insert (email-confirmed users)
       const pending = localStorage.getItem("pendingProfile");
@@ -142,28 +145,10 @@ export default function DashboardPage() {
 
   const cards = role === "marka" ? MARKA_CARDS : YAYINCI_CARDS;
 
-  const dashNav = role ? (
-    <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
-      {role === "yayinci" ? (
-        <>
-          <a href="/offers"           className="text-gray-600 hover:text-[#185FA5] transition-colors">Teklifler</a>
-          <a href="/earnings"         className="text-gray-600 hover:text-[#185FA5] transition-colors">Kazançlar</a>
-          <a href="/profile/complete" className="text-gray-600 hover:text-[#185FA5] transition-colors">Profilim</a>
-        </>
-      ) : (
-        <>
-          <a href="/search"    className="text-gray-600 hover:text-[#185FA5] transition-colors">Sponsor Bul</a>
-          <a href="/campaigns" className="text-gray-600 hover:text-[#185FA5] transition-colors">Kampanyalarım</a>
-          <a href="/payments"  className="text-gray-600 hover:text-[#185FA5] transition-colors">Ödemeler</a>
-        </>
-      )}
-    </nav>
-  ) : undefined;
-
   return (
     <div className="min-h-screen bg-gray-50">
 
-      <Navbar navLinks={dashNav} />
+      <Navbar />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
 
@@ -246,11 +231,11 @@ export default function DashboardPage() {
             </p>
           </div>
           <a
-            href="/profile/complete"
+            href={role === "yayinci" ? "/profile/edit" : role === "marka" ? "/search" : "/profile/complete"}
             className="flex-shrink-0 rounded-xl px-6 py-3 text-sm font-semibold text-white transition-all hover:opacity-90"
             style={{ backgroundColor: "#185FA5" }}
           >
-            Profili Tamamla →
+            {role === "yayinci" ? "Profili Güncelle →" : role === "marka" ? "Sponsor Bul →" : "Profili Tamamla →"}
           </a>
         </div>
 
