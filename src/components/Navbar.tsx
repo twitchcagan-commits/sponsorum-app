@@ -8,7 +8,7 @@ type Role = "yayinci" | "marka" | null;
 type SessionHint = { username: string | null; role: Role };
 
 interface NavbarProps {
-  navLinks?: React.ReactNode; // used only when the user is logged-out
+  navLinks?: React.ReactNode; // desktop-only middle links (md+), passed by homepage
   maxWidth?: string;
 }
 
@@ -26,7 +26,7 @@ function readLocalStorageSession(): SessionHint | null {
       const raw = localStorage.getItem(key);
       if (!raw) continue;
       const parsed = JSON.parse(raw);
-      const user = parsed?.user ?? parsed; // handle both wrapped and flat shapes
+      const user = parsed?.user ?? parsed;
       if (!user?.user_metadata) continue;
       return {
         username: user.user_metadata.username ?? null,
@@ -34,7 +34,7 @@ function readLocalStorageSession(): SessionHint | null {
       };
     }
   } catch {
-    // localStorage unavailable (e.g. private-browsing restrictions) — fail silently
+    // localStorage unavailable — fail silently
   }
   return null;
 }
@@ -42,14 +42,15 @@ function readLocalStorageSession(): SessionHint | null {
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function DropdownLink({
-  href, label, icon, unread = 0,
+  href, label, icon, unread = 0, onClick,
 }: {
-  href: string; label: string; icon: string; unread?: number;
+  href: string; label: string; icon: string; unread?: number; onClick?: () => void;
 }) {
   return (
     <a
       href={href}
-      className="flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-[#E6F1FB] hover:text-[#185FA5] transition-colors"
+      onClick={onClick}
+      className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-[#E6F1FB] hover:text-[#185FA5] transition-colors"
     >
       <span className="text-base w-5 text-center">{icon}</span>
       <span className="flex-1">{label}</span>
@@ -62,26 +63,37 @@ function DropdownLink({
   );
 }
 
+// ─── Hamburger icon ────────────────────────────────────────────────────────────
+
+function HamburgerIcon({ open }: { open: boolean }) {
+  return open ? (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  ) : (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+    </svg>
+  );
+}
+
 // ─── Navbar ───────────────────────────────────────────────────────────────────
 
 export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps) {
   const router   = useRouter();
   const pathname = usePathname();
 
-  const [loggedIn,     setLoggedIn]     = useState(false);
-  const [username,     setUsername]     = useState<string | null>(null);
-  const [role,         setRole]         = useState<Role>(null);
-  const [unreadCount,  setUnreadCount]  = useState(0);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [loggedIn,        setLoggedIn]        = useState(false);
+  const [username,        setUsername]        = useState<string | null>(null);
+  const [role,            setRole]            = useState<Role>(null);
+  const [unreadCount,     setUnreadCount]     = useState(0);
+  const [dropdownOpen,    setDropdownOpen]    = useState(false);
+  const [mobileMenuOpen,  setMobileMenuOpen]  = useState(false);
 
-  // ── Synchronous localStorage read — runs before every paint ─────────────────
-  //
-  // Supabase writes the session to localStorage synchronously at login.
-  // Reading it in useLayoutEffect fires BEFORE the browser paints, so the
-  // navbar always shows the correct logged-in state on the very first frame —
-  // including when the user navigates back and React re-initialises component
-  // state from scratch.
+  const dropdownRef   = useRef<HTMLDivElement>(null);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
+
+  // ── Synchronous localStorage read ────────────────────────────────────────────
   useLayoutEffect(() => {
     const session = readLocalStorageSession();
     if (session) {
@@ -93,23 +105,17 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
       setUsername(null);
       setRole(null);
     }
+    setMobileMenuOpen(false);
   }, [pathname]);
 
-  // ── Background verification + realtime auth events ────────────────────────────
-  //
-  // Verifies the session server-side once on mount and keeps state in sync with
-  // any auth events (sign-in / sign-out / token refresh) that happen during the
-  // session. The profile DB query fills in data that may not be in the cookie
-  // (e.g. if the username was updated after the last middleware run).
+  // ── Background verification + auth events ─────────────────────────────────────
   useEffect(() => {
     const supabase = createClient();
 
     async function verify() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        setLoggedIn(false);
-        setUsername(null);
-        setRole(null);
+        setLoggedIn(false); setUsername(null); setRole(null);
         return;
       }
       setLoggedIn(true);
@@ -126,9 +132,7 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session) {
-        setLoggedIn(false);
-        setUsername(null);
-        setRole(null);
+        setLoggedIn(false); setUsername(null); setRole(null);
       } else {
         setLoggedIn(true);
         const u = session.user;
@@ -140,17 +144,14 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
     return () => subscription.unsubscribe();
   }, []);
 
-  // ── Dropdown outside-click / Escape ──────────────────────────────────────────
+  // ── Avatar dropdown: outside-click / Escape ──────────────────────────────────
   useEffect(() => {
     if (!dropdownOpen) return;
     function onMouseDown(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node))
         setDropdownOpen(false);
-      }
     }
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setDropdownOpen(false);
-    }
+    function onKeyDown(e: KeyboardEvent) { if (e.key === "Escape") setDropdownOpen(false); }
     document.addEventListener("mousedown", onMouseDown);
     document.addEventListener("keydown",   onKeyDown);
     return () => {
@@ -159,16 +160,33 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
     };
   }, [dropdownOpen]);
 
+  // ── Mobile menu: outside-click / Escape ──────────────────────────────────────
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    function onMouseDown(e: MouseEvent) {
+      if (mobileMenuRef.current && !mobileMenuRef.current.contains(e.target as Node))
+        setMobileMenuOpen(false);
+    }
+    function onKeyDown(e: KeyboardEvent) { if (e.key === "Escape") setMobileMenuOpen(false); }
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("keydown",   onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("keydown",   onKeyDown);
+    };
+  }, [mobileMenuOpen]);
+
   async function handleSignOut() {
     setDropdownOpen(false);
+    setMobileMenuOpen(false);
     const supabase = createClient();
-    await supabase.auth.signOut(); // Supabase removes the localStorage entry automatically
+    await supabase.auth.signOut();
     router.push("/");
   }
 
   const avatarInitials = username ? username.slice(0, 2).toUpperCase() : "?";
 
-  // Middle nav — role-based when logged in, falls back to prop when logged out
+  // Middle nav — desktop only (md+), role-based when logged in
   const middleLinks = loggedIn && role ? (
     <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
       {role === "yayinci" ? (
@@ -188,7 +206,9 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
   ) : !loggedIn ? (navLinks ?? null) : null;
 
   return (
-    <header className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-50">
+    <header className="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-50" ref={mobileMenuRef}>
+
+      {/* ── Main bar ── */}
       <div className={`${maxWidth} mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16`}>
 
         <a href="/" className="text-2xl font-extrabold tracking-tight flex-shrink-0" style={{ color: "#185FA5" }}>
@@ -200,7 +220,7 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
         <div className="flex items-center gap-1.5 sm:gap-2">
           {loggedIn ? (
             <>
-              {/* Messages icon */}
+              {/* Messages icon — always visible */}
               <a
                 href="/messages"
                 title="Mesajlar"
@@ -216,60 +236,39 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
                 )}
               </a>
 
-              {/* Balance chip */}
-              <div
-                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm"
-                style={{ backgroundColor: "#E6F1FB" }}
-              >
+              {/* Balance chip — desktop only */}
+              <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm" style={{ backgroundColor: "#E6F1FB" }}>
                 <span className="text-xs font-medium" style={{ color: "#185FA5" }}>Bakiye</span>
                 <span className="font-bold" style={{ color: "#042C53" }}>₺0</span>
               </div>
 
-              {/* User dropdown */}
-              <div className="relative" ref={dropdownRef}>
+              {/* Avatar dropdown — desktop */}
+              <div className="hidden md:block relative" ref={dropdownRef}>
                 <button
                   onClick={() => setDropdownOpen((v) => !v)}
                   className="flex items-center gap-1.5 pl-2 pr-2.5 py-1.5 rounded-xl hover:bg-gray-50 transition-colors"
                 >
-                  <div
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
-                    style={{ backgroundColor: "#042C53" }}
-                  >
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ backgroundColor: "#042C53" }}>
                     {avatarInitials}
                   </div>
-                  <span className="hidden sm:block text-sm font-medium text-gray-700 max-w-[80px] truncate">
-                    {username ?? "…"}
-                  </span>
-                  <svg
-                    className={`w-3.5 h-3.5 text-gray-400 transition-transform duration-200 ${dropdownOpen ? "rotate-180" : ""}`}
-                    fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                  >
+                  <span className="text-sm font-medium text-gray-700 max-w-[80px] truncate">{username ?? "…"}</span>
+                  <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform duration-200 ${dropdownOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
                   </svg>
                 </button>
 
                 {dropdownOpen && (
                   <div className="absolute right-0 top-full mt-2 w-56 max-w-[calc(100vw-1.5rem)] bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
-
                     <div className="px-4 py-3 flex items-center gap-3">
-                      <div
-                        className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
-                        style={{ backgroundColor: "#042C53" }}
-                      >
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold text-white flex-shrink-0" style={{ backgroundColor: "#042C53" }}>
                         {avatarInitials}
                       </div>
                       <div className="min-w-0">
-                        <p className="text-sm font-bold truncate" style={{ color: "#042C53" }}>
-                          @{username ?? "…"}
-                        </p>
-                        <p className="text-xs text-gray-400">
-                          {role === "yayinci" ? "🎙️ Yayıncı" : role === "marka" ? "🏢 Marka" : ""}
-                        </p>
+                        <p className="text-sm font-bold truncate" style={{ color: "#042C53" }}>@{username ?? "…"}</p>
+                        <p className="text-xs text-gray-400">{role === "yayinci" ? "🎙️ Yayıncı" : role === "marka" ? "🏢 Marka" : ""}</p>
                       </div>
                     </div>
-
                     <div className="border-t border-gray-100" />
-
                     <div className="py-1">
                       <DropdownLink href="/dashboard" label="Dashboard" icon="🏠" />
                       {role === "yayinci" && (
@@ -290,14 +289,9 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
                       )}
                       <DropdownLink href="/settings" label="Ayarlar" icon="⚙️" />
                     </div>
-
                     <div className="border-t border-gray-100" />
-
                     <div className="py-1">
-                      <button
-                        onClick={handleSignOut}
-                        className="w-full flex items-center gap-3 px-4 py-2 text-sm font-medium text-red-500 hover:bg-red-50 transition-colors"
-                      >
+                      <button onClick={handleSignOut} className="w-full flex items-center gap-3 px-4 py-2 text-sm font-medium text-red-500 hover:bg-red-50 transition-colors">
                         <span className="text-base w-5 text-center">🚪</span>
                         Çıkış Yap
                       </button>
@@ -305,28 +299,126 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
                   </div>
                 )}
               </div>
+
+              {/* Hamburger — mobile only (logged-in) */}
+              <button
+                className="md:hidden w-9 h-9 flex items-center justify-center rounded-xl text-gray-600 hover:text-[#185FA5] hover:bg-[#E6F1FB] transition-colors"
+                onClick={() => setMobileMenuOpen((v) => !v)}
+                aria-label="Menüyü aç"
+              >
+                <HamburgerIcon open={mobileMenuOpen} />
+              </button>
             </>
           ) : (
             <>
-              <a
-                href="/login"
-                className="hidden sm:inline-block text-sm font-medium text-gray-600 hover:text-[#185FA5] transition-colors px-3 py-2"
-              >
+              {/* Desktop auth buttons */}
+              <a href="/login" className="hidden md:inline-block text-sm font-medium text-gray-600 hover:text-[#185FA5] transition-colors px-3 py-2">
                 Giriş
               </a>
               <a
                 href="/register"
-                className="text-sm font-semibold text-white rounded-lg px-4 py-2 transition-colors"
+                className="hidden md:inline-block text-sm font-semibold text-white rounded-lg px-4 py-2 transition-colors"
                 style={{ backgroundColor: "#185FA5" }}
                 onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#042C53")}
                 onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#185FA5")}
               >
                 Ücretsiz başla
               </a>
+
+              {/* Hamburger — mobile only (logged-out) */}
+              <button
+                className="md:hidden w-9 h-9 flex items-center justify-center rounded-xl text-gray-600 hover:text-[#185FA5] hover:bg-[#E6F1FB] transition-colors"
+                onClick={() => setMobileMenuOpen((v) => !v)}
+                aria-label="Menüyü aç"
+              >
+                <HamburgerIcon open={mobileMenuOpen} />
+              </button>
             </>
           )}
         </div>
       </div>
+
+      {/* ── Mobile menu panel ── */}
+      {mobileMenuOpen && (
+        <div className="md:hidden border-t border-gray-100 bg-white shadow-lg">
+          {loggedIn ? (
+            /* Logged-in: nav links + profile header + sign out */
+            <>
+              <div className="px-4 py-3 flex items-center gap-3 border-b border-gray-100" style={{ backgroundColor: "#F9FAFB" }}>
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ backgroundColor: "#042C53" }}>
+                  {avatarInitials}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold truncate" style={{ color: "#042C53" }}>@{username ?? "…"}</p>
+                  <p className="text-xs text-gray-400">{role === "yayinci" ? "🎙️ Yayıncı" : role === "marka" ? "🏢 Marka" : ""}</p>
+                </div>
+              </div>
+
+              <div className="py-2">
+                <DropdownLink href="/dashboard" label="Dashboard" icon="🏠" onClick={() => setMobileMenuOpen(false)} />
+                {role === "yayinci" && (
+                  <>
+                    <DropdownLink href="/offers"       label="Tekliflerim"        icon="📨" onClick={() => setMobileMenuOpen(false)} />
+                    <DropdownLink href="/messages"     label="Mesajlarım"         icon="💬" unread={unreadCount} onClick={() => setMobileMenuOpen(false)} />
+                    <DropdownLink href="/profile/edit" label="Profilimi Düzenle"  icon="✏️" onClick={() => setMobileMenuOpen(false)} />
+                  </>
+                )}
+                {role === "marka" && (
+                  <>
+                    <DropdownLink href="/search"     label="Sponsor Bul"       icon="🔍" onClick={() => setMobileMenuOpen(false)} />
+                    <DropdownLink href="/campaigns"  label="Siparişlerim"      icon="📊" onClick={() => setMobileMenuOpen(false)} />
+                    <DropdownLink href="/payments"   label="Ödemeler"          icon="💳" onClick={() => setMobileMenuOpen(false)} />
+                    <DropdownLink href="/messages"   label="Mesajlarım"        icon="💬" unread={unreadCount} onClick={() => setMobileMenuOpen(false)} />
+                    <DropdownLink href="/marka/edit" label="Profilimi Düzenle" icon="✏️" onClick={() => setMobileMenuOpen(false)} />
+                  </>
+                )}
+                <DropdownLink href="/settings" label="Ayarlar" icon="⚙️" onClick={() => setMobileMenuOpen(false)} />
+              </div>
+
+              <div className="border-t border-gray-100 py-2">
+                <button onClick={handleSignOut} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-red-500 hover:bg-red-50 transition-colors">
+                  <span className="text-base w-5 text-center">🚪</span>
+                  Çıkış Yap
+                </button>
+              </div>
+            </>
+          ) : (
+            /* Logged-out: optional page nav links + auth buttons */
+            <>
+              {/* Homepage section links (if navLinks prop provided) — rendered as simple links */}
+              <div className="py-2 border-b border-gray-100">
+                <a href="#nasil-calisir" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-[#E6F1FB] hover:text-[#185FA5] transition-colors">
+                  <span className="text-base w-5 text-center">❓</span>Nasıl çalışır
+                </a>
+                <a href="/search" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-[#E6F1FB] hover:text-[#185FA5] transition-colors">
+                  <span className="text-base w-5 text-center">🔍</span>Yayıncılar
+                </a>
+              </div>
+
+              {/* Auth */}
+              <div className="p-4 flex flex-col gap-3">
+                <a
+                  href="/login"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="w-full text-center rounded-xl py-3 text-sm font-semibold border-2 transition-colors hover:bg-gray-50"
+                  style={{ borderColor: "#E5E7EB", color: "#374151" }}
+                >
+                  Giriş Yap
+                </a>
+                <a
+                  href="/register"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="w-full text-center rounded-xl py-3 text-sm font-semibold text-white transition-colors"
+                  style={{ backgroundColor: "#185FA5" }}
+                >
+                  Ücretsiz Hesap Oluştur →
+                </a>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
     </header>
   );
 }

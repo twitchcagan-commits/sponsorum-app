@@ -58,7 +58,7 @@ export default function Home() {
 
       {/* HERO */}
       <section className="relative overflow-hidden" style={{ background: "linear-gradient(135deg, #E6F1FB 0%, #ffffff 60%)" }}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 md:py-36 text-center">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-14 sm:py-24 md:py-36 text-center">
           <span
             className="inline-block text-xs font-semibold uppercase tracking-widest rounded-full px-4 py-1.5 mb-6"
             style={{ backgroundColor: "#E6F1FB", color: "#185FA5" }}
@@ -295,7 +295,7 @@ export default function Home() {
       <footer className="py-8 border-t border-gray-100 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <span className="text-sm text-gray-400">© 2026 Sponsorum. Tüm hakları saklıdır.</span>
-          <div className="flex items-center gap-6 text-sm text-gray-500">
+          <div className="flex flex-wrap justify-center sm:justify-start items-center gap-4 sm:gap-6 text-sm text-gray-500">
             <a href="/kullanim-sartlari"   className="hover:text-[#185FA5] transition-colors">Kullanım Şartları</a>
             <a href="/gizlilik-politikasi" className="hover:text-[#185FA5] transition-colors">Gizlilik</a>
             <a href="/kvkk"                className="hover:text-[#185FA5] transition-colors">KVKK</a>

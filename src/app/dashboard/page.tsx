@@ -168,22 +168,22 @@ export default function DashboardPage() {
         </div>
 
         {/* Stats bar */}
-        <div className="grid grid-cols-3 gap-4 mb-10">
+        <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-10">
           {(role === "yayinci"
             ? [
                 { label: "Aktif Teklif", value: "0" },
                 { label: "Tamamlanan", value: "0" },
-                { label: "Toplam Kazanç", value: "₺0" },
+                { label: "Kazanç", value: "₺0" },
               ]
             : [
-                { label: "Aktif Kampanya", value: "0" },
+                { label: "Aktif Sipariş", value: "0" },
                 { label: "Tamamlanan", value: "0" },
-                { label: "Toplam Harcama", value: "₺0" },
+                { label: "Harcama", value: "₺0" },
               ]
           ).map((stat) => (
-            <div key={stat.label} className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 text-center">
-              <div className="text-2xl font-extrabold mb-1" style={{ color: "#042C53" }}>{stat.value}</div>
-              <div className="text-xs text-gray-500 font-medium">{stat.label}</div>
+            <div key={stat.label} className="bg-white rounded-2xl p-3 sm:p-5 shadow-sm border border-gray-100 text-center">
+              <div className="text-lg sm:text-2xl font-extrabold mb-0.5" style={{ color: "#042C53" }}>{stat.value}</div>
+              <div className="text-[11px] sm:text-xs text-gray-500 font-medium leading-tight">{stat.label}</div>
             </div>
           ))}
         </div>

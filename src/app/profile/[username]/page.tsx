@@ -501,10 +501,10 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          <div className="flex gap-3 flex-shrink-0 sm:pt-1">
-            <a href={`/offer/${data.username}${platformParam ? `?platform=${encodeURIComponent(platformParam)}` : ""}`}>
+          <div className="w-full sm:w-auto flex-shrink-0 sm:pt-1">
+            <a href={`/offer/${data.username}${platformParam ? `?platform=${encodeURIComponent(platformParam)}` : ""}`} className="block w-full sm:w-auto">
               <button
-                className="rounded-xl px-6 py-3 text-sm font-semibold text-white shadow-md transition-all hover:opacity-90 hover:shadow-lg active:scale-[0.98]"
+                className="w-full sm:w-auto rounded-xl px-6 py-3 text-sm font-semibold text-white shadow-md transition-all hover:opacity-90 hover:shadow-lg active:scale-[0.98]"
                 style={{ backgroundColor: "#185FA5" }}
                 onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#042C53")}
                 onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#185FA5")}
