@@ -31,6 +31,29 @@ export async function middleware(request: NextRequest) {
   // Write a non-httpOnly hint cookie so the Navbar can read auth state synchronously
   // from document.cookie before the first paint, eliminating the logged-out flash.
   if (user) {
+    // Enforce bans on every request — a user banned mid-session is signed out
+    // and bounced to /login. Skip on /login itself to avoid a redirect loop.
+    if (request.nextUrl.pathname !== "/login") {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("is_banned")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (profile?.is_banned) {
+        await supabase.auth.signOut();
+        const url = request.nextUrl.clone();
+        url.pathname = "/login";
+        url.search = "";
+        url.searchParams.set("error", "banned");
+        const redirect = NextResponse.redirect(url);
+        // Carry over the cleared auth cookies and drop the session hint
+        supabaseResponse.cookies.getAll().forEach((c) => redirect.cookies.set(c));
+        redirect.cookies.delete("sb-session-hint");
+        return redirect;
+      }
+    }
+
     const hint = encodeURIComponent(JSON.stringify({
       username: user.user_metadata?.username ?? null,
       role:     user.user_metadata?.role     ?? null,
