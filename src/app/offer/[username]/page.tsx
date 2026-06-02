@@ -14,6 +14,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase";
+import Avatar from "@/components/Avatar";
 
 // ─── Types & config ───────────────────────────────────────────────────────────
 
@@ -81,6 +82,7 @@ function minDate() {
 
 function SummaryCard({
   username,
+  avatarUrl,
   selected,
   budget,
   deadline,
@@ -90,6 +92,7 @@ function SummaryCard({
   submitError,
 }: {
   username:    string;
+  avatarUrl:   string | null;
   selected:    LoadedContentType[];
   budget:      number;
   deadline:    string;
@@ -108,12 +111,7 @@ function SummaryCard({
 
       {/* Creator */}
       <div className="flex items-center gap-3 p-3 rounded-xl" style={{ backgroundColor: "#E6F1FB" }}>
-        <div
-          className="w-11 h-11 rounded-xl flex items-center justify-center text-sm font-black text-white flex-shrink-0"
-          style={{ backgroundColor: "#042C53" }}
-        >
-          {username.slice(0, 2).toUpperCase()}
-        </div>
+        <Avatar src={avatarUrl} name={username} sizeClass="w-11 h-11" textClass="text-sm font-black" rounded="rounded-xl" />
         <div className="min-w-0">
           <p className="text-sm font-bold truncate" style={{ color: "#042C53" }}>@{username}</p>
         </div>
@@ -200,6 +198,7 @@ export default function OfferPage() {
   const groupFilter   = platformParam ? (PLATFORM_TO_GROUP[platformParam] ?? null) : null;
 
   const [yayinciId, setYayinciId]         = useState<string | null>(null);
+  const [avatarUrl, setAvatarUrl]         = useState<string | null>(null);
   // null = still loading, [] = loaded but no prices set
   const [availableTypes, setAvailableTypes] = useState<LoadedContentType[] | null>(null);
   const [selectedCols, setSelectedCols]   = useState<Set<string>>(new Set());
@@ -236,7 +235,7 @@ export default function OfferPage() {
     const supabase = createClient();
     supabase
       .from("profiles")
-      .select("id, username, role")
+      .select("id, username, role, avatar_url")
       .ilike("username", username.toLowerCase())
       .maybeSingle()
       .then(({ data, error }) => {
@@ -244,6 +243,7 @@ export default function OfferPage() {
         if (!data)  { setFetchError(`'${username}' kullanıcı adıyla profil bulunamadı.`); return; }
         if (data.role !== "yayinci") { setFetchError(`'${username}' bir yayıncı hesabı değil.`); return; }
         setYayinciId(data.id);
+        setAvatarUrl(data.avatar_url ?? null);
       });
   }, [username]);
 
@@ -534,6 +534,7 @@ export default function OfferPage() {
             <div className="lg:hidden">
               <SummaryCard
                 username={username}
+                avatarUrl={avatarUrl}
                 selected={selectedTypes}
                 budget={budgetNum}
                 deadline={deadline}
@@ -550,6 +551,7 @@ export default function OfferPage() {
             <div className="sticky top-24">
               <SummaryCard
                 username={username}
+                avatarUrl={avatarUrl}
                 selected={selectedTypes}
                 budget={budgetNum}
                 deadline={deadline}

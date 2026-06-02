@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase";
+import Avatar from "@/components/Avatar";
 
 type Role = "yayinci" | "marka" | null;
 type SessionHint = { username: string | null; role: Role };
@@ -118,6 +119,7 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
 
   const [loggedIn,       setLoggedIn]       = useState(false);
   const [username,       setUsername]       = useState<string | null>(null);
+  const [avatarUrl,      setAvatarUrl]      = useState<string | null>(null);
   const [role,           setRole]           = useState<Role>(null);
   const [unreadCount,    setUnreadCount]    = useState(0);
   const [dropdownOpen,   setDropdownOpen]   = useState(false);
@@ -154,17 +156,18 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
     async function verify() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        setLoggedIn(false); setUsername(null); setRole(null); setNotifications([]);
+        setLoggedIn(false); setUsername(null); setAvatarUrl(null); setRole(null); setNotifications([]);
         return;
       }
       setLoggedIn(true);
       const { data: profile } = await supabase
         .from("profiles")
-        .select("username, role")
+        .select("username, role, avatar_url")
         .eq("id", user.id)
         .maybeSingle();
       if (profile?.username) setUsername(profile.username);
       if (profile?.role)     setRole(profile.role as Role);
+      setAvatarUrl(profile?.avatar_url ?? null);
 
       // Fetch recent notifications
       const { data: notifs } = await supabase
@@ -191,7 +194,7 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session) {
-        setLoggedIn(false); setUsername(null); setRole(null);
+        setLoggedIn(false); setUsername(null); setAvatarUrl(null); setRole(null);
         setNotifications([]); setNotifOpen(false); setDropdownOpen(false);
       } else {
         setLoggedIn(true);
@@ -278,8 +281,6 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
     const supabase = createClient();
     await supabase.from("notifications").update({ read: true }).eq("read", false);
   }
-
-  const avatarInitials = username ? username.slice(0, 2).toUpperCase() : "?";
 
   // Middle nav — desktop only (md+), role-based when logged in
   const middleLinks = loggedIn && role ? (
@@ -409,9 +410,7 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
                   onClick={() => setDropdownOpen((v) => !v)}
                   className="flex items-center gap-1.5 pl-2 pr-2.5 py-1.5 rounded-xl hover:bg-gray-50 transition-colors"
                 >
-                  <div className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ backgroundColor: "#042C53" }}>
-                    {avatarInitials}
-                  </div>
+                  <Avatar src={avatarUrl} name={username ?? "?"} sizeClass="w-7 h-7" textClass="text-xs font-bold" rounded="rounded-lg" />
                   <span className="text-sm font-medium text-gray-700 max-w-[80px] truncate">{username ?? "…"}</span>
                   <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform duration-200 ${dropdownOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
@@ -421,9 +420,7 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
                 {dropdownOpen && (
                   <div className="absolute right-0 top-full mt-2 w-56 max-w-[calc(100vw-1.5rem)] bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
                     <div className="px-4 py-3 flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold text-white flex-shrink-0" style={{ backgroundColor: "#042C53" }}>
-                        {avatarInitials}
-                      </div>
+                      <Avatar src={avatarUrl} name={username ?? "?"} sizeClass="w-10 h-10" textClass="text-sm font-bold" rounded="rounded-xl" />
                       <div className="min-w-0">
                         <p className="text-sm font-bold truncate" style={{ color: "#042C53" }}>@{username ?? "…"}</p>
                         <p className="text-xs text-gray-400">{role === "yayinci" ? "🎙️ Yayıncı" : role === "marka" ? "🏢 Marka" : ""}</p>
@@ -507,9 +504,7 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
             /* Logged-in: nav links + profile header + sign out */
             <>
               <div className="px-4 py-3 flex items-center gap-3 border-b border-gray-100" style={{ backgroundColor: "#F9FAFB" }}>
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ backgroundColor: "#042C53" }}>
-                  {avatarInitials}
-                </div>
+                <Avatar src={avatarUrl} name={username ?? "?"} sizeClass="w-9 h-9" textClass="text-xs font-bold" rounded="rounded-xl" />
                 <div className="min-w-0">
                   <p className="text-sm font-bold truncate" style={{ color: "#042C53" }}>@{username ?? "…"}</p>
                   <p className="text-xs text-gray-400">{role === "yayinci" ? "🎙️ Yayıncı" : role === "marka" ? "🏢 Marka" : ""}</p>

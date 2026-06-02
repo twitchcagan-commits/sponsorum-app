@@ -4,17 +4,32 @@
 
   alter table profiles          add column if not exists user_preferences jsonb default '{}'::jsonb;
   alter table profiles          add column if not exists is_suspended boolean default false;
+  alter table profiles          add column if not exists avatar_url text;
   alter table yayinci_profiles  add column if not exists iban text;
   -- supporting columns used by this page:
   alter table marka_profiles    add column if not exists billing_address text;
   alter table marka_profiles    add column if not exists pro_expires_at timestamptz;
   alter table yayinci_profiles  add column if not exists pro_expires_at timestamptz;
+
+  -- Public "avatars" storage bucket for profile photos:
+  insert into storage.buckets (id, name, public)
+  values ('avatars', 'avatars', true)
+  on conflict (id) do nothing;
+
+  create policy "Users can upload own avatar"
+    on storage.objects for insert to authenticated
+    with check (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+
+  create policy "Anyone can view avatars"
+    on storage.objects for select
+    using (bucket_id = 'avatars');
 */
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import Navbar from "@/components/Navbar";
+import Avatar from "@/components/Avatar";
 
 type Role = "yayinci" | "marka" | null;
 type UsernameStatus = "idle" | "checking" | "available" | "taken" | "invalid" | "current";
@@ -38,6 +53,9 @@ const PRO_ACCOUNT_LIMIT  = 15;
 
 const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
 const USERNAME_COOLDOWN_DAYS = 30;
+
+const AVATAR_MAX_BYTES = 2 * 1024 * 1024; // 2 MB
+const AVATAR_TYPES = ["image/jpeg", "image/png"];
 
 type Tab = "account" | "notifications" | "security" | "subscription" | "payment";
 
@@ -188,6 +206,12 @@ export default function SettingsPage() {
   const [email, setEmail] = useState("");
   const [userId, setUserId] = useState("");
 
+  // Avatar
+  const [avatarUrl, setAvatarUrl]         = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarErr, setAvatarErr]         = useState("");
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+
   // Account info
   const [displayName, setDisplayName]   = useState("");
   const [username, setUsername]         = useState("");
@@ -252,7 +276,7 @@ export default function SettingsPage() {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("role, display_name, username, user_preferences, username_changed_at")
+        .select("role, display_name, username, user_preferences, username_changed_at, avatar_url")
         .eq("id", user.id)
         .maybeSingle();
 
@@ -260,6 +284,7 @@ export default function SettingsPage() {
 
       const r = (profile.role ?? null) as Role;
       setRole(r);
+      setAvatarUrl(profile.avatar_url ?? null);
       setDisplayName(profile.display_name ?? "");
       setUsername(profile.username ?? "");
       setOriginalUsername(profile.username ?? "");
@@ -316,6 +341,43 @@ export default function SettingsPage() {
       const { data } = await supabase.from("profiles").select("id").eq("username", val).maybeSingle();
       setUsernameStatus(data ? "taken" : "available");
     }, 500);
+  }
+
+  // ── Avatar upload ──
+  async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file later
+    if (!file) return;
+
+    setAvatarErr("");
+    if (!AVATAR_TYPES.includes(file.type)) { setAvatarErr("Sadece JPG veya PNG yükleyebilirsin."); return; }
+    if (file.size > AVATAR_MAX_BYTES)      { setAvatarErr("Dosya boyutu 2 MB'tan büyük olamaz."); return; }
+
+    setAvatarUploading(true);
+    const supabase = createClient();
+    const ext  = file.type === "image/png" ? "png" : "jpg";
+    // Folder must be the user id for the storage RLS policy to allow the write.
+    const path = `${userId}/avatar.${ext}`;
+
+    const { error: uploadErr } = await supabase.storage
+      .from("avatars")
+      .upload(path, file, { contentType: file.type, upsert: true });
+
+    if (uploadErr) {
+      setAvatarUploading(false);
+      setAvatarErr("Yükleme başarısız: " + uploadErr.message);
+      return;
+    }
+
+    // Cache-bust so the overwritten image refreshes immediately everywhere.
+    const { data: { publicUrl } } = supabase.storage.from("avatars").getPublicUrl(path);
+    const url = `${publicUrl}?t=${Date.now()}`;
+
+    const { error: saveErr } = await supabase.from("profiles").update({ avatar_url: url }).eq("id", userId);
+    setAvatarUploading(false);
+    if (saveErr) { setAvatarErr("Kaydedilemedi: " + saveErr.message); return; }
+
+    setAvatarUrl(url);
   }
 
   async function saveAccount() {
@@ -576,6 +638,26 @@ export default function SettingsPage() {
           {/* ── 1. HESAP BİLGİLERİ ── */}
           {activeTab === "account" && (
           <Section title="Hesap Bilgileri" desc="Görünen adın, kullanıcı adın ve giriş bilgilerin.">
+            {/* Profile photo */}
+            <div className="flex items-center gap-4 mb-6 pb-6 border-b border-gray-100">
+              <Avatar src={avatarUrl} name={displayName || username || "?"} sizeClass="w-20 h-20" textClass="text-2xl font-black" rounded="rounded-full" />
+              <div className="min-w-0">
+                <p className="text-sm font-bold mb-0.5" style={{ color: "#042C53" }}>Profil Fotoğrafı</p>
+                <p className="text-xs text-gray-400 mb-2.5">JPG veya PNG, en fazla 2 MB.</p>
+                <input ref={avatarInputRef} type="file" accept="image/jpeg,image/png" onChange={handleAvatarChange} className="hidden" />
+                <button
+                  type="button"
+                  onClick={() => avatarInputRef.current?.click()}
+                  disabled={avatarUploading}
+                  className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold transition-all hover:bg-gray-50 active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed"
+                  style={{ color: "#185FA5" }}
+                >
+                  {avatarUploading ? "Yükleniyor…" : avatarUrl ? "Fotoğrafı Değiştir" : "Fotoğraf Yükle"}
+                </button>
+                {avatarErr && <p className="text-xs text-red-600 mt-2">{avatarErr}</p>}
+              </div>
+            </div>
+
             <div className="flex flex-col gap-4">
               <Field label="Görünen Ad">
                 <input type="text" value={displayName} onChange={(e) => { setDisplayName(e.target.value); setAccountMsg(""); setAccountErr(""); }} placeholder="Görünen adın" className={inputCls} />

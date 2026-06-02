@@ -60,6 +60,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import Navbar from "@/components/Navbar";
+import SharedAvatar from "@/components/Avatar";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -70,6 +71,7 @@ type Conversation = {
   otherPartyId:          string;
   otherPartyUsername:    string;
   otherPartyDisplayName: string;
+  otherPartyAvatarUrl:   string | null;
   contentType:           string;
   offerStatus:           DbOfferStatus;
   lastMessage:           string;
@@ -110,13 +112,6 @@ const STATUS_CFG: Record<DbOfferStatus, { bg: string; text: string; dot: string;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  return parts.length >= 2
-    ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-    : name.slice(0, 2).toUpperCase();
-}
-
 function fmtTime(iso: string): string {
   const d   = new Date(iso);
   const now = new Date();
@@ -134,13 +129,10 @@ function fmtBytes(n: number): string {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function Avatar({ name, size = "md" }: { name: string; size?: "sm" | "md" }) {
-  const dim = size === "sm" ? "w-9 h-9 text-xs" : "w-11 h-11 text-sm";
-  return (
-    <div className={`${dim} rounded-xl flex items-center justify-center font-black text-white flex-shrink-0`} style={{ backgroundColor: "#042C53" }}>
-      {initials(name)}
-    </div>
-  );
+function Avatar({ name, src, size = "md" }: { name: string; src?: string | null; size?: "sm" | "md" }) {
+  const sizeClass = size === "sm" ? "w-9 h-9" : "w-11 h-11";
+  const textClass = size === "sm" ? "text-xs font-black" : "text-sm font-black";
+  return <SharedAvatar src={src} name={name} sizeClass={sizeClass} textClass={textClass} rounded="rounded-xl" />;
 }
 
 function StatusChip({ status }: { status: DbOfferStatus }) {
@@ -201,7 +193,7 @@ function ConvItem({
           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onClick(); }}
           className="w-full flex items-start gap-3 px-4 py-3.5 text-left cursor-pointer"
         >
-          <Avatar name={conv.otherPartyDisplayName} />
+          <Avatar name={conv.otherPartyDisplayName} src={conv.otherPartyAvatarUrl} />
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-1 mb-0.5">
               <span className="text-sm font-bold truncate" style={{ color: active ? "#185FA5" : "#042C53" }}>
@@ -313,9 +305,9 @@ export default function MessagesPage() {
       (offerRows as any[]).map((o) => o.marka_id === user.id ? o.yayinci_id : o.marka_id)
     )];
     const { data: profileRows } = await supabase
-      .from("profiles").select("id, username, display_name").in("id", otherIds);
+      .from("profiles").select("id, username, display_name, avatar_url").in("id", otherIds);
 
-    const profileMap: Record<string, { username: string; display_name: string }> = {};
+    const profileMap: Record<string, { username: string; display_name: string; avatar_url: string | null }> = {};
     for (const p of profileRows ?? []) profileMap[p.id] = p;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -349,6 +341,7 @@ export default function MessagesPage() {
         otherPartyId:          otherId,
         otherPartyUsername:    profile?.username     ?? "kullanici",
         otherPartyDisplayName: profile?.display_name ?? "Kullanıcı",
+        otherPartyAvatarUrl:   profile?.avatar_url   ?? null,
         contentType:           o.content_type,
         offerStatus:           o.status as DbOfferStatus,
         lastMessage:           preview,
@@ -563,7 +556,7 @@ export default function MessagesPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                     </svg>
                   </button>
-                  <Avatar name={activeConv.otherPartyDisplayName} />
+                  <Avatar name={activeConv.otherPartyDisplayName} src={activeConv.otherPartyAvatarUrl} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="text-sm font-bold" style={{ color: "#042C53" }}>@{activeConv.otherPartyUsername}</p>

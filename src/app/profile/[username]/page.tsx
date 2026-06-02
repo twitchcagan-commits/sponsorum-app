@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import Navbar from "@/components/Navbar";
+import Avatar from "@/components/Avatar";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -79,6 +80,7 @@ type ProfileData = {
   username:     string;
   displayName:  string;
   initials:     string;
+  avatarUrl:    string | null;
   niche:        string;
   categories:   string[];
   bio:          string;
@@ -329,7 +331,7 @@ export default function ProfilePage() {
       // 1. Look up profile by username (case-insensitive)
       const { data: profile, error: profileErr } = await supabase
         .from("profiles")
-        .select("id, username, display_name")
+        .select("id, username, display_name, avatar_url")
         .ilike("username", username)
         .maybeSingle();
 
@@ -366,6 +368,7 @@ export default function ProfilePage() {
         username:    profile.username ?? username,
         displayName,
         initials:    initials(displayName),
+        avatarUrl:   profile.avatar_url ?? null,
         niche:       categories[0] ?? "Diğer",
         categories,
         bio:         yp.bio ?? "",
@@ -470,12 +473,13 @@ export default function ProfilePage() {
             />
           </div>
           <div className="absolute left-6 sm:left-10 -bottom-12">
-            <div
-              className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl border-4 border-white shadow-lg flex items-center justify-center text-3xl sm:text-4xl font-black text-white"
-              style={{ backgroundColor: "#042C53" }}
-            >
-              {data.initials}
-            </div>
+            <Avatar
+              src={data.avatarUrl}
+              name={data.displayName}
+              sizeClass="w-24 h-24 sm:w-28 sm:h-28 border-4 border-white shadow-lg"
+              textClass="text-3xl sm:text-4xl font-black"
+              rounded="rounded-2xl"
+            />
           </div>
         </div>
 
