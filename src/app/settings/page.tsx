@@ -37,6 +37,17 @@ const FREE_ACCOUNT_LIMIT = 5;
 const PRO_ACCOUNT_LIMIT  = 15;
 
 const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
+const USERNAME_COOLDOWN_DAYS = 30;
+
+type Tab = "account" | "notifications" | "security" | "subscription" | "payment";
+
+const TABS: { id: Tab; label: string; icon: string }[] = [
+  { id: "account",       label: "Hesap Bilgileri",     icon: "👤" },
+  { id: "notifications", label: "Bildirim Tercihleri", icon: "🔔" },
+  { id: "security",      label: "Gizlilik & Güvenlik", icon: "🔒" },
+  { id: "subscription",  label: "Abonelik",            icon: "⭐" },
+  { id: "payment",       label: "Ödeme Bilgileri",     icon: "💳" },
+];
 
 // ─── Turkish bank codes (5-digit national bank code inside the IBAN) ───────────
 
@@ -102,6 +113,16 @@ function fmtDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric" });
 }
 
+// Username may only be changed once every USERNAME_COOLDOWN_DAYS. Returns whether
+// the change is currently locked, how many days remain, and the next allowed date.
+function usernameCooldown(changedAt: string | null): { locked: boolean; daysLeft: number; nextDate: string } {
+  if (!changedAt) return { locked: false, daysLeft: 0, nextDate: "" };
+  const nextMs = new Date(changedAt).getTime() + USERNAME_COOLDOWN_DAYS * 86_400_000;
+  const diff = nextMs - Date.now();
+  if (diff <= 0) return { locked: false, daysLeft: 0, nextDate: "" };
+  return { locked: true, daysLeft: Math.ceil(diff / 86_400_000), nextDate: fmtDate(new Date(nextMs).toISOString()) };
+}
+
 // ─── Shared UI ─────────────────────────────────────────────────────────────────
 
 function Section({ title, desc, children }: { title: string; desc?: string; children: React.ReactNode }) {
@@ -162,6 +183,7 @@ export default function SettingsPage() {
   const router = useRouter();
 
   const [pageLoading, setPageLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<Tab>("account");
   const [role, setRole]   = useState<Role>(null);
   const [email, setEmail] = useState("");
   const [userId, setUserId] = useState("");
@@ -170,6 +192,7 @@ export default function SettingsPage() {
   const [displayName, setDisplayName]   = useState("");
   const [username, setUsername]         = useState("");
   const [originalUsername, setOriginalUsername] = useState("");
+  const [usernameChangedAt, setUsernameChangedAt] = useState<string | null>(null);
   const [usernameStatus, setUsernameStatus]     = useState<UsernameStatus>("idle");
   const usernameTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [savingAccount, setSavingAccount] = useState(false);
@@ -229,7 +252,7 @@ export default function SettingsPage() {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("role, display_name, username, user_preferences")
+        .select("role, display_name, username, user_preferences, username_changed_at")
         .eq("id", user.id)
         .maybeSingle();
 
@@ -240,6 +263,7 @@ export default function SettingsPage() {
       setDisplayName(profile.display_name ?? "");
       setUsername(profile.username ?? "");
       setOriginalUsername(profile.username ?? "");
+      setUsernameChangedAt(profile.username_changed_at ?? null);
       setPrefs({ ...DEFAULT_PREFS, ...(profile.user_preferences ?? {}) });
 
       if (r === "marka") {
@@ -299,6 +323,11 @@ export default function SettingsPage() {
     if (!displayName.trim()) { setAccountErr("Görünen ad boş olamaz."); return; }
     const changed = username !== originalUsername;
     if (changed) {
+      const cd = usernameCooldown(usernameChangedAt);
+      if (cd.locked) {
+        setAccountErr(`Kullanıcı adınızı ${cd.daysLeft} gün sonra (${cd.nextDate}) değiştirebilirsiniz.`);
+        return;
+      }
       if (!USERNAME_RE.test(username)) { setAccountErr("Kullanıcı adı 3-20 karakter; sadece a-z, 0-9 ve _."); return; }
       if (usernameStatus === "taken")  { setAccountErr("Bu kullanıcı adı alınmış."); return; }
       if (usernameStatus === "checking") { setAccountErr("Kullanıcı adı kontrol ediliyor, lütfen bekle."); return; }
@@ -306,9 +335,14 @@ export default function SettingsPage() {
 
     setSavingAccount(true);
     const supabase = createClient();
+    const nowIso = new Date().toISOString();
     const { error } = await supabase
       .from("profiles")
-      .update({ display_name: displayName.trim(), username: username.trim() })
+      .update({
+        display_name: displayName.trim(),
+        username: username.trim(),
+        ...(changed ? { username_changed_at: nowIso } : {}),
+      })
       .eq("id", userId);
     setSavingAccount(false);
 
@@ -317,6 +351,7 @@ export default function SettingsPage() {
       return;
     }
     setOriginalUsername(username.trim());
+    if (changed) setUsernameChangedAt(nowIso);
     setUsernameStatus("current");
     setAccountMsg("Hesap bilgilerin güncellendi.");
   }
@@ -422,6 +457,7 @@ export default function SettingsPage() {
 
   const ibanBank = detectBank(iban);
   const accountLimit = isPro ? PRO_ACCOUNT_LIMIT : FREE_ACCOUNT_LIMIT;
+  const usernameLock = usernameCooldown(usernameChangedAt);
 
   // ── Loading ──
   if (pageLoading) {
@@ -499,7 +535,7 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-10">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-10">
 
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
@@ -512,9 +548,33 @@ export default function SettingsPage() {
           </a>
         </div>
 
-        <div className="flex flex-col gap-5">
+        <div className="flex flex-col md:flex-row gap-6 items-start">
+
+          {/* ── Sidebar (desktop) / horizontal tabs (mobile) ── */}
+          <aside className="w-full md:w-56 md:flex-shrink-0 md:sticky md:top-20">
+            <nav className="flex md:flex-col gap-1.5 overflow-x-auto md:overflow-visible pb-1 md:pb-0 -mx-1 px-1">
+              {TABS.map((t) => {
+                const active = activeTab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => setActiveTab(t.id)}
+                    className={`flex items-center gap-2.5 rounded-xl px-4 py-2.5 text-sm font-semibold whitespace-nowrap transition-all flex-shrink-0 text-left ${active ? "text-white shadow-sm" : "text-gray-600 hover:bg-[#E6F1FB] hover:text-[#185FA5]"}`}
+                    style={active ? { backgroundColor: "#185FA5" } : undefined}
+                  >
+                    <span className="text-base">{t.icon}</span>
+                    <span>{t.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          </aside>
+
+          {/* ── Active section content ── */}
+          <div className="flex-1 min-w-0 w-full flex flex-col gap-5">
 
           {/* ── 1. HESAP BİLGİLERİ ── */}
+          {activeTab === "account" && (
           <Section title="Hesap Bilgileri" desc="Görünen adın, kullanıcı adın ve giriş bilgilerin.">
             <div className="flex flex-col gap-4">
               <Field label="Görünen Ad">
@@ -532,6 +592,11 @@ export default function SettingsPage() {
                 {usernameStatus === "available" && <p className="text-xs text-green-600 mt-1">Kullanılabilir</p>}
                 {usernameStatus === "taken" && <p className="text-xs text-red-600 mt-1">Bu kullanıcı adı alınmış</p>}
                 {usernameStatus === "invalid" && <p className="text-xs text-red-600 mt-1">En az 3 karakter; sadece a-z, 0-9 ve _</p>}
+                {usernameLock.locked && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    🔒 Kullanıcı adınızı {usernameLock.daysLeft} gün sonra ({usernameLock.nextDate}) değiştirebilirsiniz.
+                  </p>
+                )}
               </Field>
 
               <Field label="E-posta" hint="değiştirilemez">
@@ -569,8 +634,10 @@ export default function SettingsPage() {
               </div>
             </div>
           </Section>
+          )}
 
           {/* ── 2. BİLDİRİM TERCİHLERİ ── */}
+          {activeTab === "notifications" && (
           <Section title="Bildirim Tercihleri" desc="Hangi durumlarda bilgilendirilmek istediğini seç.">
             <div className="divide-y divide-gray-100">
               <p className="text-xs font-bold uppercase tracking-widest text-gray-400 pb-2">E-posta Bildirimleri</p>
@@ -584,8 +651,10 @@ export default function SettingsPage() {
             </div>
             {prefsSaved && <p className="text-xs text-emerald-600 font-medium mt-3">✓ Tercihlerin kaydedildi</p>}
           </Section>
+          )}
 
           {/* ── 4. ABONELİK ── */}
+          {activeTab === "subscription" && (
           <Section title="Abonelik" desc="Planını ve avantajlarını yönet.">
             <div className="rounded-xl border border-gray-100 bg-gray-50 p-5">
               <div className="flex items-center justify-between">
@@ -629,8 +698,10 @@ export default function SettingsPage() {
               </a>
             )}
           </Section>
+          )}
 
           {/* ── 5. ÖDEME BİLGİLERİ ── */}
+          {activeTab === "payment" && (
           <Section title="Ödeme Bilgileri" desc={role === "yayinci" ? "Kazançlarının yatırılacağı banka hesabı." : "Fatura bilgilerin."}>
             {role === "yayinci" ? (
               <div className="flex flex-col gap-4">
@@ -669,8 +740,10 @@ export default function SettingsPage() {
               </div>
             )}
           </Section>
+          )}
 
           {/* ── 3. GİZLİLİK & GÜVENLİK ── */}
+          {activeTab === "security" && (
           <Section title="Gizlilik & Güvenlik" desc="Oturumun ve hesap durumun.">
             {/* Active session card */}
             <div className="rounded-xl border border-gray-100 bg-gray-50 p-5 flex items-start gap-4">
@@ -703,7 +776,9 @@ export default function SettingsPage() {
               </button>
             </div>
           </Section>
+          )}
 
+          </div>
         </div>
       </div>
     </div>
