@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/email";
+import { insertNotifications } from "@/lib/notifications";
 
 function adminClient() {
   return createClient(
@@ -89,6 +90,23 @@ export async function POST(req: NextRequest) {
         <a class="btn" href="${appUrl}/admin">Yönetim Paneline Git →</a>
       `,
     }));
+
+    tasks.push(insertNotifications([
+      {
+        user_id: markaId,
+        title: "Anlaşmazlık Açıldı ⚖️",
+        message: "Teslimatı reddettiniz. Durum Sponsorum ekibine iletildi ve inceleniyor.",
+        type: "dispute_opened",
+        link: "/campaigns",
+      },
+      {
+        user_id: yayinciId,
+        title: "Anlaşmazlık Açıldı ⚖️",
+        message: `${markaName} teslimatınızı onaylamadı. Durum Sponsorum ekibine iletildi.`,
+        type: "dispute_opened",
+        link: "/offers",
+      },
+    ]));
 
     await Promise.allSettled(tasks);
 

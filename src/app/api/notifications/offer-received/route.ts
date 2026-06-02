@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/email";
+import { insertNotification } from "@/lib/notifications";
 
 // Requires SUPABASE_SERVICE_ROLE_KEY in env (server-only, no NEXT_PUBLIC prefix)
 function adminClient() {
@@ -63,6 +64,14 @@ export async function POST(req: NextRequest) {
         <a class="btn" href="${appUrl}/offers">Teklifi İncele →</a>
       `,
     });
+
+    insertNotification({
+      user_id: yayinciId,
+      title: "Yeni Sponsorluk Teklifi 🎉",
+      message: `${markaName} sizi ${contentType} içeriği için ${fmtAmount(amount)} teklif etti.`,
+      type: "offer_received",
+      link: "/offers",
+    }).catch(() => {});
 
     return NextResponse.json({ ok: true });
   } catch (err) {

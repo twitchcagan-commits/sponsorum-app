@@ -6,17 +6,23 @@ import { createClient } from "@/lib/supabase";
 
 type Role = "yayinci" | "marka" | null;
 type SessionHint = { username: string | null; role: Role };
+type Notification = {
+  id: string;
+  title: string;
+  message: string;
+  type: string;
+  read: boolean;
+  link: string | null;
+  created_at: string;
+};
 
 interface NavbarProps {
-  navLinks?: React.ReactNode; // desktop-only middle links (md+), passed by homepage
+  navLinks?: React.ReactNode;
   maxWidth?: string;
 }
 
 // ─── localStorage helper ──────────────────────────────────────────────────────
 
-// Supabase persists the session in localStorage under a key matching
-// sb-<project-ref>-auth-token. Reading it is synchronous and available
-// immediately on the client — no async round-trip needed.
 function readLocalStorageSession(): SessionHint | null {
   if (typeof window === "undefined") return null;
   try {
@@ -37,6 +43,33 @@ function readLocalStorageSession(): SessionHint | null {
     // localStorage unavailable — fail silently
   }
   return null;
+}
+
+// ─── Notification helpers ─────────────────────────────────────────────────────
+
+function notifIcon(type: string): string {
+  const icons: Record<string, string> = {
+    offer_received:     "🎉",
+    offer_accepted:     "✅",
+    offer_rejected:     "❌",
+    delivery_scheduled: "📅",
+    delivery_submitted: "🔍",
+    delivery_accepted:  "💰",
+    dispute_opened:     "⚖️",
+  };
+  return icons[type] ?? "🔔";
+}
+
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1)  return "Az önce";
+  if (mins < 60) return `${mins} dk önce`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24)  return `${hrs} sa önce`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7)  return `${days} gün önce`;
+  return new Date(iso).toLocaleDateString("tr-TR");
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -83,15 +116,20 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
   const router   = useRouter();
   const pathname = usePathname();
 
-  const [loggedIn,        setLoggedIn]        = useState(false);
-  const [username,        setUsername]        = useState<string | null>(null);
-  const [role,            setRole]            = useState<Role>(null);
-  const [unreadCount,     setUnreadCount]     = useState(0);
-  const [dropdownOpen,    setDropdownOpen]    = useState(false);
-  const [mobileMenuOpen,  setMobileMenuOpen]  = useState(false);
+  const [loggedIn,       setLoggedIn]       = useState(false);
+  const [username,       setUsername]       = useState<string | null>(null);
+  const [role,           setRole]           = useState<Role>(null);
+  const [unreadCount,    setUnreadCount]    = useState(0);
+  const [dropdownOpen,   setDropdownOpen]   = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [notifications,  setNotifications]  = useState<Notification[]>([]);
+  const [notifOpen,      setNotifOpen]      = useState(false);
 
   const dropdownRef   = useRef<HTMLDivElement>(null);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
+  const notifRef      = useRef<HTMLDivElement>(null);
+
+  const notifUnreadCount = notifications.filter(n => !n.read).length;
 
   // ── Synchronous localStorage read ────────────────────────────────────────────
   useLayoutEffect(() => {
@@ -111,11 +149,12 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
   // ── Background verification + auth events ─────────────────────────────────────
   useEffect(() => {
     const supabase = createClient();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
 
     async function verify() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        setLoggedIn(false); setUsername(null); setRole(null);
+        setLoggedIn(false); setUsername(null); setRole(null); setNotifications([]);
         return;
       }
       setLoggedIn(true);
@@ -126,6 +165,26 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
         .maybeSingle();
       if (profile?.username) setUsername(profile.username);
       if (profile?.role)     setRole(profile.role as Role);
+
+      // Fetch recent notifications
+      const { data: notifs } = await supabase
+        .from("notifications")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(20);
+      if (notifs) setNotifications(notifs as Notification[]);
+
+      // Real-time: push new notifications instantly
+      channel = supabase
+        .channel(`notifs-${user.id}`)
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
+          (payload) => {
+            setNotifications(prev => [payload.new as Notification, ...prev.slice(0, 19)]);
+          },
+        )
+        .subscribe();
     }
 
     verify();
@@ -133,6 +192,7 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session) {
         setLoggedIn(false); setUsername(null); setRole(null);
+        setNotifications([]); setNotifOpen(false); setDropdownOpen(false);
       } else {
         setLoggedIn(true);
         const u = session.user;
@@ -141,7 +201,10 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+      if (channel) supabase.removeChannel(channel);
+    };
   }, []);
 
   // ── Avatar dropdown: outside-click / Escape ──────────────────────────────────
@@ -159,6 +222,22 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
       document.removeEventListener("keydown",   onKeyDown);
     };
   }, [dropdownOpen]);
+
+  // ── Notification dropdown: outside-click / Escape ─────────────────────────────
+  useEffect(() => {
+    if (!notifOpen) return;
+    function onMouseDown(e: MouseEvent) {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node))
+        setNotifOpen(false);
+    }
+    function onKeyDown(e: KeyboardEvent) { if (e.key === "Escape") setNotifOpen(false); }
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("keydown",   onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("keydown",   onKeyDown);
+    };
+  }, [notifOpen]);
 
   // ── Mobile menu: outside-click / Escape ──────────────────────────────────────
   useEffect(() => {
@@ -182,6 +261,22 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
     const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/");
+  }
+
+  async function markNotifRead(notif: Notification) {
+    setNotifOpen(false);
+    if (!notif.read) {
+      setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, read: true } : n));
+      const supabase = createClient();
+      await supabase.from("notifications").update({ read: true }).eq("id", notif.id);
+    }
+    if (notif.link) router.push(notif.link);
+  }
+
+  async function markAllRead() {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    const supabase = createClient();
+    await supabase.from("notifications").update({ read: true }).eq("read", false);
   }
 
   const avatarInitials = username ? username.slice(0, 2).toUpperCase() : "?";
@@ -220,7 +315,7 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
         <div className="flex items-center gap-1.5 sm:gap-2">
           {loggedIn ? (
             <>
-              {/* Messages icon — always visible */}
+              {/* Messages icon */}
               <a
                 href="/messages"
                 title="Mesajlar"
@@ -235,6 +330,72 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
                   <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white" />
                 )}
               </a>
+
+              {/* Notification bell */}
+              <div className="relative" ref={notifRef}>
+                <button
+                  onClick={() => setNotifOpen(v => !v)}
+                  title="Bildirimler"
+                  className="relative w-9 h-9 flex items-center justify-center rounded-xl text-gray-500 hover:text-[#185FA5] hover:bg-[#E6F1FB] transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+                      d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+                    />
+                  </svg>
+                  {notifUnreadCount > 0 && (
+                    <span className="absolute top-1 right-1 min-w-[16px] h-4 rounded-full bg-red-500 ring-2 ring-white text-white text-[10px] font-bold flex items-center justify-center px-0.5 leading-none">
+                      {notifUnreadCount > 99 ? "99+" : notifUnreadCount}
+                    </span>
+                  )}
+                </button>
+
+                {notifOpen && (
+                  <div className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-50">
+                    {/* Header */}
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                      <span className="text-sm font-bold" style={{ color: "#042C53" }}>Bildirimler</span>
+                      {notifUnreadCount > 0 && (
+                        <button
+                          onClick={markAllRead}
+                          className="text-xs hover:underline"
+                          style={{ color: "#185FA5" }}
+                        >
+                          Tümünü okundu işaretle
+                        </button>
+                      )}
+                    </div>
+
+                    {/* List */}
+                    <div className="overflow-y-auto max-h-80">
+                      {notifications.length === 0 ? (
+                        <div className="px-4 py-8 text-center text-sm text-gray-400">
+                          <div className="text-2xl mb-2">🔔</div>
+                          Henüz bildiriminiz yok
+                        </div>
+                      ) : (
+                        notifications.map(notif => (
+                          <button
+                            key={notif.id}
+                            onClick={() => markNotifRead(notif)}
+                            className={`w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-[#E6F1FB] transition-colors border-b border-gray-50 last:border-0 ${!notif.read ? "bg-blue-50/40" : ""}`}
+                          >
+                            <span className="text-lg flex-shrink-0 mt-0.5">{notifIcon(notif.type)}</span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-gray-800">{notif.title}</p>
+                              <p className="text-xs text-gray-500 mt-0.5">{notif.message}</p>
+                              <p className="text-[10px] text-gray-400 mt-1">{relativeTime(notif.created_at)}</p>
+                            </div>
+                            {!notif.read && (
+                              <span className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style={{ backgroundColor: "#185FA5" }} />
+                            )}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {/* Balance chip — desktop only */}
               <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm" style={{ backgroundColor: "#E6F1FB" }}>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/email";
+import { insertNotification } from "@/lib/notifications";
 
 function adminClient() {
   return createClient(
@@ -44,6 +45,14 @@ export async function POST(req: NextRequest) {
         <a class="btn" href="${appUrl}/earnings">Kazançlarıma Git →</a>
       `,
     });
+
+    insertNotification({
+      user_id: yayinciId,
+      title: "Ödemeniz Serbest Bırakıldı 🎉",
+      message: `Marka içeriğinizi onayladı.${amount ? ` ${money(amount)} bakiyenize eklendi.` : ""}`,
+      type: "delivery_accepted",
+      link: "/earnings",
+    }).catch(() => {});
 
     return NextResponse.json({ ok: true });
   } catch (err) {

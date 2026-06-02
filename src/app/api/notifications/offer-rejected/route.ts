@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/email";
+import { insertNotification } from "@/lib/notifications";
 
 function adminClient() {
   return createClient(
@@ -48,6 +49,14 @@ export async function POST(req: NextRequest) {
         <a class="btn" href="${appUrl}/search">Yeni Yayıncı Ara →</a>
       `,
     });
+
+    insertNotification({
+      user_id: markaId,
+      title: "Teklifiniz Reddedildi ❌",
+      message: `${yayinciName} bu sefer teklifinizi kabul edemedi. Yeni bir yayıncı arayabilirsiniz.`,
+      type: "offer_rejected",
+      link: "/search",
+    }).catch(() => {});
 
     return NextResponse.json({ ok: true });
   } catch (err) {
