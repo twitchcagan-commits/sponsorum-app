@@ -220,8 +220,8 @@ export default function RegisterPage() {
         taxNumber:   taxNumber.trim(),
       })
     );
-    setStep("confirm-email");
-    setLoading(false);
+    // Email not confirmed yet → send the user to the verification page
+    router.push(`/auth/verify-email?email=${encodeURIComponent(email)}`);
   }
 
   return (
