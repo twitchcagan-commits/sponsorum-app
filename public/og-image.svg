@@ -1,0 +1,33 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#042C53"/>
+      <stop offset="1" stop-color="#185FA5"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- Subtle dot grid accent -->
+  <g fill="#FFFFFF" opacity="0.06">
+    <circle cx="1060" cy="120" r="6"/>
+    <circle cx="1110" cy="120" r="6"/>
+    <circle cx="1160" cy="120" r="6"/>
+    <circle cx="1060" cy="170" r="6"/>
+    <circle cx="1110" cy="170" r="6"/>
+    <circle cx="1160" cy="170" r="6"/>
+    <circle cx="1060" cy="220" r="6"/>
+    <circle cx="1110" cy="220" r="6"/>
+    <circle cx="1160" cy="220" r="6"/>
+  </g>
+
+  <!-- Logo -->
+  <text x="100" y="300" font-family="Arial, Helvetica, sans-serif" font-size="120" font-weight="800" fill="#FFFFFF" letter-spacing="-3">Sponsorum</text>
+
+  <!-- Accent underline -->
+  <rect x="104" y="335" width="220" height="10" rx="5" fill="#FFFFFF" opacity="0.85"/>
+
+  <!-- Tagline -->
+  <text x="104" y="430" font-family="Arial, Helvetica, sans-serif" font-size="46" font-weight="500" fill="#E6F1FB">Türkiye'nin Anonim Influencer</text>
+  <text x="104" y="492" font-family="Arial, Helvetica, sans-serif" font-size="46" font-weight="500" fill="#E6F1FB">Sponsorluk Pazaryeri</text>
+</svg>
