@@ -443,6 +443,7 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
                         <>
                           <DropdownLink href="/marka/edit" label="Profilimi Düzenle" icon="✏️" />
                           <DropdownLink href="/search"     label="Sponsor Bul"       icon="🔍" />
+                          <DropdownLink href="/favorites"  label="Favorilerim"       icon="❤️" />
                           <DropdownLink href="/campaigns"  label="Siparişlerim"      icon="📊" />
                           <DropdownLink href="/payments"   label="Ödemeler"          icon="💳" />
                           <DropdownLink href="/messages"   label="Mesajlarım"        icon="💬" unread={unreadCount} />
@@ -527,6 +528,7 @@ export default function Navbar({ navLinks, maxWidth = "max-w-7xl" }: NavbarProps
                 {role === "marka" && (
                   <>
                     <DropdownLink href="/search"     label="Sponsor Bul"       icon="🔍" onClick={() => setMobileMenuOpen(false)} />
+                    <DropdownLink href="/favorites"  label="Favorilerim"       icon="❤️" onClick={() => setMobileMenuOpen(false)} />
                     <DropdownLink href="/campaigns"  label="Siparişlerim"      icon="📊" onClick={() => setMobileMenuOpen(false)} />
                     <DropdownLink href="/payments"   label="Ödemeler"          icon="💳" onClick={() => setMobileMenuOpen(false)} />
                     <DropdownLink href="/messages"   label="Mesajlarım"        icon="💬" unread={unreadCount} onClick={() => setMobileMenuOpen(false)} />
